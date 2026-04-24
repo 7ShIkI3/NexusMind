@@ -64,11 +64,7 @@ function createWindow() {
   })
 
   // Load the frontend
-  const frontendUrl = isDev
-    ? 'http://localhost:3000'
-    : `file://${path.join(__dirname, '../../frontend/dist/index.html')}`
-
-  mainWindow.loadURL(frontendUrl)
+  mainWindow.loadURL(getFrontendUrl())
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
@@ -86,6 +82,12 @@ function createWindow() {
   setupMenu()
 }
 
+function getFrontendUrl() {
+  return isDev
+    ? 'http://localhost:3000'
+    : `file://${path.join(__dirname, '../../frontend/dist/index.html')}`
+}
+
 function setupMenu() {
   const template = [
     {
@@ -93,8 +95,11 @@ function setupMenu() {
       submenu: [
         { label: 'About NexusMind', role: 'about' },
         { type: 'separator' },
-        { label: 'Preferences…', accelerator: 'CmdOrCtrl+,',
-          click: () => mainWindow.loadURL((isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, '../../frontend/dist/index.html')}`) + '#/settings') },
+        {
+          label: 'Preferences…',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => mainWindow.loadURL(getFrontendUrl() + '#/settings'),
+        },
         { type: 'separator' },
         { role: 'quit' },
       ],

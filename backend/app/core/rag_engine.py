@@ -99,8 +99,9 @@ class RAGEngine:
             chunk_ids.append(cid)
             documents.append(chunk)
             meta = dict(metadata or {})
+            from datetime import timezone
             meta.update({"doc_id": doc_id, "chunk_index": i,
-                         "ingested_at": datetime.utcnow().isoformat()})
+                         "ingested_at": datetime.now(timezone.utc).isoformat()})
             metadatas.append(meta)
 
         col.upsert(ids=chunk_ids, documents=documents, metadatas=metadatas)

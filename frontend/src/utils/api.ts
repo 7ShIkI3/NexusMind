@@ -120,7 +120,9 @@ export function streamChat(
           if (payload.type === 'chunk') onChunk(payload.content)
           if (payload.type === 'done') onDone(payload.message_id)
           if (payload.type === 'error') onError(payload.error)
-        } catch {}
+        } catch (parseErr) {
+          console.debug('[streamChat] Failed to parse SSE line:', line, parseErr)
+        }
       }
     }
   }).catch((err) => {

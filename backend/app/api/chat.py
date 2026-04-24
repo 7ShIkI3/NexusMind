@@ -103,7 +103,9 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
     try:
         response = await ai_manager.chat(req.provider, messages, req.model)
     except Exception as e:
-        raise HTTPException(500, f"AI error: {e}")
+        import logging
+        logging.getLogger(__name__).error("AI chat error: %s", e, exc_info=True)
+        raise HTTPException(500, "AI provider error. Check server logs for details.")
 
     ai_msg = Message(conversation_id=conv.id, role="assistant",
                      content=response, provider=req.provider, model=req.model)

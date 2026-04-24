@@ -97,4 +97,6 @@ async def test_provider(provider: str):
         )
         return {"provider": provider, "response": response, "success": True}
     except Exception as e:
-        return {"provider": provider, "error": str(e), "success": False}
+        import logging
+        logging.getLogger(__name__).error("Provider test error (%s): %s", provider, e, exc_info=True)
+        return {"provider": provider, "error": "Provider test failed. Check configuration.", "success": False}

@@ -24,8 +24,10 @@ async def lifespan(app: FastAPI):
     from app.models.routine import Routine
     db = SessionLocal()
     try:
-        active_routines = db.query(Routine).filter(Routine.enabled == True,  # noqa: E712
-                                                    Routine.schedule.isnot(None)).all()
+        active_routines = db.query(Routine).filter(
+            Routine.enabled.is_(True),
+            Routine.schedule.isnot(None),
+        ).all()
         for r in active_routines:
             try:
                 from app.api.routines import _schedule_routine
