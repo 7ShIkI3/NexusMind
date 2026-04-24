@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: #0f1117;
+    --color-surface: #1a1d2e;
+    --color-border: #2a2d3e;
+    --color-accent: #4361ee;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2d3e transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #2a2d3e;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #4361ee;
+  }
+
+  body {
+    @apply bg-[#0f1117] text-gray-100 font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-nexus-500 hover:bg-nexus-600 text-white px-4 py-2 rounded-lg
+           font-medium transition-all duration-150 flex items-center gap-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply text-gray-400 hover:text-white hover:bg-white/5 px-3 py-2 rounded-lg
+           font-medium transition-all duration-150 flex items-center gap-2;
+  }
+
+  .btn-danger {
+    @apply bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30
+           px-4 py-2 rounded-lg font-medium transition-all duration-150;
+  }
+
+  .card {
+    @apply bg-[#1a1d2e] border border-white/5 rounded-xl;
+  }
+
+  .input {
+    @apply bg-[#0f1117] border border-white/10 text-white placeholder-gray-500
+           rounded-lg px-3 py-2 w-full focus:outline-none focus:border-nexus-500
+           transition-colors duration-150;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400
+           hover:text-white hover:bg-white/5 transition-all duration-150
+           cursor-pointer text-sm font-medium;
+  }
+
+  .nav-item.active {
+    @apply text-white bg-nexus-500/20 text-nexus-400;
+  }
+}
+
+/* TipTap editor styles */
+.ProseMirror {
+  @apply outline-none min-h-[200px];
+}
+
+.ProseMirror p {
+  @apply mb-3 leading-relaxed;
+}
+
+.ProseMirror h1 { @apply text-2xl font-bold mb-4 mt-6; }
+.ProseMirror h2 { @apply text-xl font-bold mb-3 mt-5; }
+.ProseMirror h3 { @apply text-lg font-semibold mb-2 mt-4; }
+
+.ProseMirror ul { @apply list-disc pl-5 mb-3 space-y-1; }
+.ProseMirror ol { @apply list-decimal pl-5 mb-3 space-y-1; }
+
+.ProseMirror blockquote {
+  @apply border-l-4 border-nexus-500 pl-4 italic text-gray-400 my-4;
+}
+
+.ProseMirror code {
+  @apply bg-white/10 px-1 py-0.5 rounded text-sm font-mono;
+}
+
+.ProseMirror pre {
+  @apply bg-[#0a0c14] rounded-lg p-4 my-4 overflow-x-auto;
+}
+
+.ProseMirror pre code {
+  @apply bg-transparent p-0 text-sm;
+}
+
+.ProseMirror a {
+  @apply text-nexus-400 underline underline-offset-2;
+}
+
+.ProseMirror mark {
+  @apply bg-yellow-400/30 text-yellow-200 px-0.5 rounded;
+}
+
+.ProseMirror ul[data-type="taskList"] {
+  @apply list-none pl-0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  @apply flex items-start gap-2;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  @apply flex-shrink-0 mt-1;
+}
+
+/* Cytoscape graph */
+.cy-container {
+  width: 100%;
+  height: 100%;
+}

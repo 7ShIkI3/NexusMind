@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/out/
+*.local
+
+# Data
+backend/data/
+backend/chroma_db/
+backend/nexusmind.db
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.production
+config.local.yaml
+
+# Extensions (user-installed)
+backend/extensions/installed/
