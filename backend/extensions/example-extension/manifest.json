@@ -1,0 +1,16 @@
+{
+  "name": "Example Extension",
+  "slug": "example-extension",
+  "version": "1.0.0",
+  "description": "A minimal example NexusMind extension demonstrating the extension API",
+  "author": "NexusMind Team",
+  "entry_point": "main.py",
+  "tags": ["example", "demo"],
+  "config_schema": {
+    "greeting": {
+      "type": "string",
+      "default": "Hello from extension!",
+      "description": "Custom greeting message"
+    }
+  }
+}

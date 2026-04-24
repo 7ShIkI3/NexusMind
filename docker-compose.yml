@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: nexusmind-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/nexusmind.db
+      - CHROMA_DB_PATH=./data/chroma_db
+      - EXTENSIONS_PATH=./extensions
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/extensions:/app/extensions
+    restart: unless-stopped
+    networks:
+      - nexusmind-net
+
+  rag-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.rag
+    container_name: nexusmind-rag
+    ports:
+      - "8001:8001"
+    environment:
+      - CHROMA_DB_PATH=./data/chroma_db
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
+    networks:
+      - nexusmind-net
+
+  frontend:
+    build: ./frontend
+    container_name: nexusmind-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - nexusmind-net
+
+networks:
+  nexusmind-net:
+    driver: bridge
+
+volumes:
+  nexusmind-data:

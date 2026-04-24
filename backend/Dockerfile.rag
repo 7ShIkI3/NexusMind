@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y gcc g++ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir chromadb sentence-transformers fastapi uvicorn httpx
+
+COPY app/core/rag_engine.py app/core/rag_engine.py
+COPY app/core/config.py app/core/config.py
+
+EXPOSE 8001
+
+CMD ["uvicorn", "app.rag_server:app", "--host", "0.0.0.0", "--port", "8001"]
