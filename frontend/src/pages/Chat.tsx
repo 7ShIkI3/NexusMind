@@ -26,6 +26,8 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
+  // Accumulates streaming chunks without depending on React state timing
+  const streamAccumulatorRef = useRef('')
 
   useEffect(() => {
     loadConversations()
@@ -121,22 +123,26 @@ export default function ChatPage() {
     }
 
     setStreamingContent('')
+    streamAccumulatorRef.current = ''
     const assistantMsg = { role: 'assistant', content: '', id: Date.now() + 1, streaming: true }
     setMessages((prev) => [...prev, assistantMsg])
 
     abortRef.current = streamChat(
       payload,
       (chunk) => {
+        streamAccumulatorRef.current += chunk
         setStreamingContent((prev) => prev + chunk)
       },
       (messageId) => {
+        const finalContent = streamAccumulatorRef.current
         setMessages((prev) =>
           prev.map((m) =>
             m.streaming
-              ? { ...m, content: streamingContent, streaming: false, id: messageId }
+              ? { ...m, content: finalContent, streaming: false, id: messageId }
               : m,
           ),
         )
+        streamAccumulatorRef.current = ''
         setStreamingContent('')
         setLoading(false)
         if (!activeConversationId) loadConversations()
@@ -144,11 +150,12 @@ export default function ChatPage() {
       (err) => {
         toast.error(err)
         setMessages((prev) => prev.filter((m) => !m.streaming))
+        streamAccumulatorRef.current = ''
         setStreamingContent('')
         setLoading(false)
       },
     )
-  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection, streamingContent])
+  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection])
 
   return (
     <div className="flex h-full overflow-hidden">

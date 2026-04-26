@@ -5,10 +5,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y gcc g++ && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir chromadb sentence-transformers fastapi uvicorn httpx
+RUN pip install --no-cache-dir chromadb sentence-transformers fastapi uvicorn httpx \
+    pydantic pydantic-settings python-dotenv pypdf
 
-COPY app/core/rag_engine.py app/core/rag_engine.py
+# Copy only what the standalone RAG server needs
+COPY app/__init__.py app/__init__.py
+COPY app/core/__init__.py app/core/__init__.py
 COPY app/core/config.py app/core/config.py
+COPY app/core/rag_engine.py app/core/rag_engine.py
+COPY app/rag_server.py app/rag_server.py
+
+RUN mkdir -p /app/data
 
 EXPOSE 8001
 
