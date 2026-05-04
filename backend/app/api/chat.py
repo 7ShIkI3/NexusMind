@@ -1,10 +1,14 @@
+import json
+import asyncio
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-import json
-import asyncio
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.ai_manager import ai_manager
@@ -103,8 +107,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
     try:
         response = await ai_manager.chat(req.provider, messages, req.model)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("AI chat error: %s", e, exc_info=True)
+        logger.error("AI chat error: %s", e, exc_info=True)
         raise HTTPException(500, "AI provider error. Check server logs for details.")
 
     ai_msg = Message(conversation_id=conv.id, role="assistant",

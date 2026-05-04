@@ -16,6 +16,12 @@ services:
     restart: unless-stopped
     networks:
       - nexusmind-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   rag-server:
     build:
@@ -32,14 +38,23 @@ services:
     restart: unless-stopped
     networks:
       - nexusmind-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   frontend:
     build: ./frontend
     container_name: nexusmind-frontend
     ports:
       - "3000:80"
+    environment:
+      - VITE_API_URL=/api/v1
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - nexusmind-net
