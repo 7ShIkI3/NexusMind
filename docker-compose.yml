@@ -50,8 +50,6 @@ services:
     container_name: nexusmind-frontend
     ports:
       - "3000:80"
-    environment:
-      - VITE_API_URL=/api/v1
     depends_on:
       backend:
         condition: service_healthy

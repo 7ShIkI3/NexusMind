@@ -39,7 +39,7 @@ class QueryRequest(BaseModel):
 class IngestRequest(BaseModel):
     text: str
     doc_id: Optional[str] = None
-    metadata: dict = {}
+    metadata: Optional[dict] = None
     collection: str = "nexusmind"
 
 
