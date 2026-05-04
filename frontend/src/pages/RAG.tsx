@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ragApi } from '@/utils/api'
-import { Upload, Database, Search, Trash2, Plus, Loader2, FileText } from 'lucide-react'
+import { Upload, Database, Search, Trash2, Plus, Loader2, FileText, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function RAGPage() {
@@ -13,6 +13,8 @@ export default function RAGPage() {
   const [uploading, setUploading] = useState(false)
   const [textInput, setTextInput] = useState('')
   const [newCollectionName, setNewCollectionName] = useState('')
+  const [docIds, setDocIds] = useState<string[]>([])
+  const [loadingDocs, setLoadingDocs] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -27,6 +29,15 @@ export default function RAGPage() {
       setStats(statsRes.data)
       setCollections(collRes.data.collections || [])
     } catch {}
+    loadDocIds()
+  }
+
+  async function loadDocIds() {
+    setLoadingDocs(true)
+    try {
+      const { data } = await ragApi.listDocIds(activeCollection)
+      setDocIds(data.doc_ids || [])
+    } catch {} finally { setLoadingDocs(false) }
   }
 
   async function search() {
@@ -88,12 +99,22 @@ export default function RAGPage() {
 
   async function deleteCollection(name: string) {
     if (name === 'nexusmind') return toast.error('Cannot delete default collection')
+    if (!confirm(`Delete collection "${name}"?`)) return
     try {
       await ragApi.deleteCollection(name)
       setCollections(collections.filter((c) => c !== name))
       if (activeCollection === name) setActiveCollection('nexusmind')
       toast.success('Collection deleted')
     } catch {}
+  }
+
+  async function deleteDocument(docId: string) {
+    try {
+      await ragApi.deleteDocument(docId, activeCollection)
+      setDocIds(docIds.filter((d) => d !== docId))
+      toast.success('Document deleted')
+      loadData()
+    } catch { toast.error('Delete failed') }
   }
 
   return (
@@ -193,6 +214,40 @@ export default function RAGPage() {
           </div>
         </div>
 
+        {/* Documents */}
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+              <FileText size={16} className="text-nexus-400" /> Documents ({docIds.length})
+            </h2>
+            <button onClick={loadDocIds} className="btn-ghost text-xs py-1">
+              <RefreshCw size={12} className={loadingDocs ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+          {loadingDocs ? (
+            <div className="flex justify-center py-4">
+              <Loader2 size={20} className="text-nexus-400 animate-spin" />
+            </div>
+          ) : docIds.length === 0 ? (
+            <p className="text-sm text-gray-600 text-center py-4">No documents yet — ingest some content above</p>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {docIds.map((docId) => (
+                <div key={docId} className="flex items-center justify-between bg-[#0f1117] rounded-lg px-3 py-2 border border-white/5">
+                  <span className="text-xs text-gray-300 font-mono truncate flex-1 mr-3">{docId}</span>
+                  <button
+                    onClick={() => deleteDocument(docId)}
+                    className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    title="Delete document"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Search */}
         <div className="card p-5">
           <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
@@ -227,7 +282,7 @@ export default function RAGPage() {
                   {r.metadata && Object.keys(r.metadata).length > 0 && (
                     <div className="mt-2 flex gap-2 flex-wrap">
                       {Object.entries(r.metadata)
-                        .filter(([k]) => ['title', 'filename', 'type'].includes(k))
+                        .filter(([k]) => ['title', 'filename', 'type', 'doc_id'].includes(k))
                         .map(([k, v]) => (
                           <span key={k} className="badge bg-white/5 text-gray-500 text-[10px]">
                             {k}: {String(v)}

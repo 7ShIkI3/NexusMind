@@ -383,16 +383,24 @@ export default function GraphPage() {
         <Modal title="Add Edge" onClose={() => setShowAddEdge(false)}>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Source Node ID *</label>
-              <input className="input" value={newEdge.source_id}
-                onChange={(e) => setNewEdge({ ...newEdge, source_id: e.target.value })}
-                placeholder="Source node ID" />
+              <label className="text-xs text-gray-400 mb-1 block">Source Node *</label>
+              <select className="input" value={newEdge.source_id}
+                onChange={(e) => setNewEdge({ ...newEdge, source_id: e.target.value })}>
+                <option value="">Select source node…</option>
+                {elements.filter((el) => !el.data.source).map((el) => (
+                  <option key={el.data.id} value={el.data.id}>{el.data.label}</option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Target Node ID *</label>
-              <input className="input" value={newEdge.target_id}
-                onChange={(e) => setNewEdge({ ...newEdge, target_id: e.target.value })}
-                placeholder="Target node ID" />
+              <label className="text-xs text-gray-400 mb-1 block">Target Node *</label>
+              <select className="input" value={newEdge.target_id}
+                onChange={(e) => setNewEdge({ ...newEdge, target_id: e.target.value })}>
+                <option value="">Select target node…</option>
+                {elements.filter((el) => !el.data.source && el.data.id !== newEdge.source_id).map((el) => (
+                  <option key={el.data.id} value={el.data.id}>{el.data.label}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Label</label>
@@ -411,7 +419,7 @@ export default function GraphPage() {
               </select>
             </div>
             <div className="flex gap-2 pt-2">
-              <button onClick={addEdge} className="btn-primary flex-1">Add Edge</button>
+              <button onClick={addEdge} disabled={!newEdge.source_id || !newEdge.target_id} className="btn-primary flex-1">Add Edge</button>
               <button onClick={() => setShowAddEdge(false)} className="btn-ghost flex-1">Cancel</button>
             </div>
           </div>

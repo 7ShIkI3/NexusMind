@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '@/store'
-import { chatApi, streamChat } from '@/utils/api'
-import { Send, Plus, Trash2, Bot, User, Loader2, Cpu, ToggleLeft, ToggleRight } from 'lucide-react'
+import { chatApi, ragApi, streamChat } from '@/utils/api'
+import { Send, Plus, Trash2, Bot, User, Cpu, ToggleLeft, ToggleRight, Square, ChevronDown, ChevronUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import ReactMarkdown from 'react-markdown'
@@ -13,7 +13,7 @@ export default function ChatPage() {
     setConversations, setActiveConversationId,
     addConversation, deleteConversation,
     selectedProvider, selectedModel,
-    ragEnabled, ragCollection, setRagEnabled,
+    ragEnabled, ragCollection, setRagEnabled, setRagCollection,
   } = useStore()
 
   const [messages, setMessages] = useState<any[]>([])
@@ -22,6 +22,9 @@ export default function ChatPage() {
   const [streamingContent, setStreamingContent] = useState('')
   const [providers, setProviders] = useState<any[]>([])
   const [models, setModels] = useState<string[]>([])
+  const [ragCollections, setRagCollections] = useState<string[]>(['nexusmind'])
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false)
+  const [systemPrompt, setSystemPrompt] = useState('')
   const { setSelectedProvider, setSelectedModel } = useStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -32,6 +35,7 @@ export default function ChatPage() {
   useEffect(() => {
     loadConversations()
     loadProviders()
+    loadRagCollections()
   }, [])
 
   useEffect(() => {
@@ -60,6 +64,7 @@ export default function ChatPage() {
     try {
       const { data } = await chatApi.getConversation(id)
       setMessages(data.messages || [])
+      setSystemPrompt(data.system_prompt || '')
     } catch {}
   }
 
@@ -77,12 +82,20 @@ export default function ChatPage() {
     } catch {}
   }
 
+  async function loadRagCollections() {
+    try {
+      const { data } = await ragApi.listCollections()
+      if (data.collections?.length > 0) setRagCollections(data.collections)
+    } catch {}
+  }
+
   async function newConversation() {
     try {
       const { data } = await chatApi.createConversation({
         title: 'New Conversation',
         provider: selectedProvider,
         model: selectedModel,
+        system_prompt: systemPrompt || undefined,
       })
       addConversation(data)
       setActiveConversationId(data.id)
@@ -103,6 +116,22 @@ export default function ChatPage() {
     } catch {}
   }
 
+  function stopGeneration() {
+    if (abortRef.current) {
+      abortRef.current()
+      abortRef.current = null
+    }
+    const finalContent = streamAccumulatorRef.current
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.streaming ? { ...m, content: finalContent + ' ▪ [stopped]', streaming: false } : m,
+      ),
+    )
+    streamAccumulatorRef.current = ''
+    setStreamingContent('')
+    setLoading(false)
+  }
+
   const sendMessage = useCallback(async () => {
     if (!input.trim() || loading) return
     const text = input.trim()
@@ -117,6 +146,7 @@ export default function ChatPage() {
       provider: selectedProvider,
       model: selectedModel,
       conversation_id: activeConversationId,
+      system_prompt: systemPrompt || undefined,
       use_rag: ragEnabled,
       rag_collection: ragCollection,
       stream: true,
@@ -155,7 +185,7 @@ export default function ChatPage() {
         setLoading(false)
       },
     )
-  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection])
+  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection, systemPrompt])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -198,17 +228,28 @@ export default function ChatPage() {
       {/* Chat area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-white/5 bg-[#111425]/50">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#111425]/50 flex-wrap">
           <select
             value={selectedProvider}
-            onChange={(e) => setSelectedProvider(e.target.value)}
+            onChange={(e) => { setSelectedProvider(e.target.value); setModels([]) }}
             className="input text-sm py-1 w-32"
           >
-            <option value="ollama">Ollama</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Claude</option>
-            <option value="gemini">Gemini</option>
-            <option value="abacus">Abacus</option>
+            {providers.length > 0
+              ? providers.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name.charAt(0).toUpperCase() + p.name.slice(1)}
+                    {p.available ? '' : ' ✗'}
+                  </option>
+                ))
+              : (
+                <>
+                  <option value="ollama">Ollama</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Claude</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="abacus">Abacus</option>
+                </>
+              )}
           </select>
 
           <select
@@ -220,7 +261,7 @@ export default function ChatPage() {
               <option key={m} value={m}>{m}</option>
             ))}
             {models.length === 0 && (
-              <option value={selectedModel}>{selectedModel}</option>
+              <option value={selectedModel}>{selectedModel || 'Default'}</option>
             )}
           </select>
 
@@ -232,11 +273,51 @@ export default function ChatPage() {
                 ? 'border-nexus-500/50 text-nexus-400 bg-nexus-500/10'
                 : 'border-white/10 text-gray-500',
             )}
+            title="Toggle RAG (knowledge base context)"
           >
             {ragEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
             RAG
           </button>
+
+          {ragEnabled && (
+            <select
+              value={ragCollection}
+              onChange={(e) => setRagCollection(e.target.value)}
+              className="input text-xs py-1 w-32"
+              title="RAG collection"
+            >
+              {ragCollections.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+            className={clsx(
+              'flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-all ml-auto',
+              showSystemPrompt
+                ? 'border-nexus-500/50 text-nexus-400 bg-nexus-500/10'
+                : 'border-white/10 text-gray-500',
+            )}
+            title="System prompt"
+          >
+            {showSystemPrompt ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            System
+          </button>
         </div>
+
+        {/* System prompt panel */}
+        {showSystemPrompt && (
+          <div className="px-4 py-2 border-b border-white/5 bg-[#0f1117]">
+            <textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              placeholder="System prompt (optional) — sets AI behaviour for this conversation…"
+              className="input resize-none w-full text-xs h-16"
+            />
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -255,7 +336,7 @@ export default function ChatPage() {
               <h2 className="text-xl font-semibold text-white mb-2">Start a conversation</h2>
               <p className="text-gray-500 text-sm max-w-md">
                 Chat with Ollama, Claude, Gemini, GPT-4 and more.
-                {ragEnabled && ' RAG mode enabled — your notes will be used as context.'}
+                {ragEnabled && ' RAG mode enabled — your knowledge base will be used as context.'}
               </p>
             </div>
           )}
@@ -279,13 +360,23 @@ export default function ChatPage() {
               rows={1}
               disabled={loading}
             />
-            <button
-              onClick={sendMessage}
-              disabled={loading || !input.trim()}
-              className="btn-primary px-4 self-end"
-            >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
+            {loading ? (
+              <button
+                onClick={stopGeneration}
+                className="btn-danger px-4 self-end"
+                title="Stop generation"
+              >
+                <Square size={18} />
+              </button>
+            ) : (
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim()}
+                className="btn-primary px-4 self-end"
+              >
+                <Send size={18} />
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -54,11 +54,40 @@ NexusMind/
 
 ## 🚀 Quick Start
 
-### Option 1: Docker Compose (Recommended)
+### ⚡ Option 0: Automatic Installer (Easiest)
+
+**Linux / macOS:**
+```bash
+git clone https://github.com/7ShIkI3/NexusMind.git
+cd NexusMind
+bash install.sh
+```
+
+**Windows:**
+```
+1. Download or clone the repo
+2. Double-click install.bat
+3. Follow the on-screen prompts
+```
+
+The installer will:
+- ✅ Check prerequisites (Python 3.9+, Node.js 16+)
+- ✅ Let you choose Local or Docker install
+- ✅ Prompt for AI provider API keys (optional)
+- ✅ Create the `.env` configuration file automatically
+- ✅ Install all dependencies
+- ✅ Offer to start NexusMind immediately
+
+---
+
+### Option 1: Docker Compose (Recommended for production)
 
 ```bash
 git clone https://github.com/7ShIkI3/NexusMind.git
 cd NexusMind
+# Optional: configure API keys
+cp backend/.env.example backend/.env
+# Edit backend/.env then:
 docker-compose up -d
 ```
 
@@ -66,7 +95,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-### Option 2: Manual Setup
+### Option 2: Manual Setup (Development)
 
 #### Backend
 
@@ -75,6 +104,9 @@ cd backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+cp .env.example .env       # Edit .env to add API keys
+mkdir -p data extensions/installed
 
 # Start the backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -91,6 +123,16 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
+
+**Quick start script (Linux/macOS):**
+```bash
+./start-dev.sh
+```
+
+**Quick start script (Windows):**
+```
+Double-click start-dev.bat
+```
 
 ---
 

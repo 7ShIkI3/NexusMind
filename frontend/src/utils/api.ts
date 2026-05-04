@@ -57,6 +57,8 @@ export const ragApi = {
     api.post('/rag/ingest/file', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  listDocIds: (collection?: string) =>
+    api.get('/rag/documents', { params: { collection } }),
   deleteDocument: (docId: string, collection?: string) =>
     api.delete(`/rag/documents/${docId}`, { params: { collection } }),
 }
