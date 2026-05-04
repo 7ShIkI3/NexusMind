@@ -96,31 +96,24 @@ def update_config(data: ProviderConfig):
 
 def _persist_to_env(data: ProviderConfig, update_map: dict):
     """Write updated settings back to the .env file."""
+    import re
     env_path = ".env"
 
     # Read existing lines
-    existing: dict[str, str] = {}
     lines: list[str] = []
     if os.path.exists(env_path):
         with open(env_path, "r") as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#") and "=" in stripped:
-                    k, _, v = stripped.partition("=")
-                    existing[k.strip()] = v.strip()
-                lines.append(line.rstrip("\n"))
+            lines = [line.rstrip("\n") for line in f]
 
     # Update or append values
     for field, env_key in update_map.items():
         value = getattr(data, field, None)
         if value is None:
             continue
-        existing[env_key] = value
-        # Replace in-place if key exists in lines
+        pattern = re.compile(r"^\s*" + re.escape(env_key) + r"\s*=")
         found = False
         for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped.startswith(f"{env_key}=") or stripped.startswith(f"{env_key} ="):
+            if pattern.match(line):
                 lines[i] = f"{env_key}={value}"
                 found = True
                 break

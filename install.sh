@@ -111,8 +111,9 @@ cat > "$ENV_FILE" <<EOF
 # Edit this file to update your settings
 
 # ── App ─────────────────────────────────────────────
-SECRET_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32 2>/dev/null || echo "nexusmind-secret-change-me")
+SECRET_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32 2>/dev/null || echo "CHANGE_ME_BEFORE_PRODUCTION")
 DEBUG=false
+# ⚠ IMPORTANT: Change SECRET_KEY above if the random generation failed
 
 # ── AI Providers ────────────────────────────────────
 OLLAMA_BASE_URL=$OLLAMA_URL

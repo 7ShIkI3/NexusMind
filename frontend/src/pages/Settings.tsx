@@ -38,7 +38,7 @@ export default function SettingsPage() {
         abacus_base_url: configRes.data.abacus_base_url || '',
       })
       setProviders(provRes.data)
-    } catch { toast.error('Failed to load settings') }
+    } catch (err) { console.error('[Settings] loadAll error:', err); toast.error('Failed to load settings') }
   }
 
   async function save() {

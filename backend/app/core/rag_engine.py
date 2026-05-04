@@ -8,7 +8,7 @@ import os
 import uuid
 import hashlib
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.config import settings
 
@@ -99,7 +99,6 @@ class RAGEngine:
             chunk_ids.append(cid)
             documents.append(chunk)
             meta = dict(metadata or {})
-            from datetime import timezone
             meta.update({"doc_id": doc_id, "chunk_index": i,
                          "ingested_at": datetime.now(timezone.utc).isoformat()})
             metadatas.append(meta)
@@ -110,7 +109,7 @@ class RAGEngine:
     def query(
         self,
         query_text: str,
-        top_k: int = None,
+        top_k: Optional[int] = None,
         collection: str = "nexusmind",
         where: Optional[dict] = None,
     ) -> list[dict]:
