@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useStore } from '@/store'
 import Sidebar from '@/components/Layout/Sidebar'
@@ -22,42 +22,51 @@ const PAGE_TITLES: Record<string, string> = {
   settings: 'Settings',
 }
 
-export default function App() {
-  const { activePage, theme } = useStore()
+function AppContent() {
+  const { theme } = useStore()
+  const location = useLocation()
+  const segment = location.pathname.replace(/^\//, '').split('/')[0] || 'chat'
+  const title = PAGE_TITLES[segment] || 'NexusMind'
 
   return (
     <div className={clsx(theme === 'light' && 'light')}>
-      <BrowserRouter>
-        <div className="flex h-screen overflow-hidden bg-[#0f1117]">
-          <Sidebar />
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <TopBar title={PAGE_TITLES[activePage]} />
-            <main className="flex-1 overflow-hidden">
-              <Routes>
-                <Route path="/" element={<Navigate to="/chat" replace />} />
-                <Route path="/chat" element={<ChatPage />} />
-                <Route path="/notes" element={<NotesPage />} />
-                <Route path="/graph" element={<GraphPage />} />
-                <Route path="/rag" element={<RAGPage />} />
-                <Route path="/routines" element={<RoutinesPage />} />
-                <Route path="/extensions" element={<ExtensionsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-              </Routes>
-            </main>
-          </div>
+      <div className="flex h-screen overflow-hidden bg-[#0f1117]">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <TopBar title={title} />
+          <main className="flex-1 overflow-hidden">
+            <Routes>
+              <Route path="/" element={<Navigate to="/chat" replace />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/notes" element={<NotesPage />} />
+              <Route path="/graph" element={<GraphPage />} />
+              <Route path="/rag" element={<RAGPage />} />
+              <Route path="/routines" element={<RoutinesPage />} />
+              <Route path="/extensions" element={<ExtensionsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </main>
         </div>
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: '#1a1d2e',
-              color: '#e2e8f0',
-              border: '1px solid rgba(255,255,255,0.05)',
-              fontSize: '13px',
-            },
-          }}
-        />
-      </BrowserRouter>
+      </div>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: '#1a1d2e',
+            color: '#e2e8f0',
+            border: '1px solid rgba(255,255,255,0.05)',
+            fontSize: '13px',
+          },
+        }}
+      />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { graphApi } from '@/utils/api'
+import cytoscape from 'cytoscape'
 import CytoscapeComponent from 'react-cytoscapejs'
 import {
   Plus, Search, Trash2, Link, Loader2,
@@ -236,12 +237,12 @@ export default function GraphPage() {
             style={{ width: '100%', height: '100%' }}
             stylesheet={CYTOSCAPE_STYLE}
             layout={{ name: layout, animate: true, animationDuration: 500 } as any}
-            cy={(cy) => {
+            cy={(cy: cytoscape.Core) => {
               cyRef.current = cy
-              cy.on('tap', 'node', (e) => {
+              cy.on('tap', 'node', (e: cytoscape.EventObject) => {
                 setSelectedNode(e.target.data())
               })
-              cy.on('tap', (e) => {
+              cy.on('tap', (e: cytoscape.EventObject) => {
                 if (e.target === cy) setSelectedNode(null)
               })
             }}
