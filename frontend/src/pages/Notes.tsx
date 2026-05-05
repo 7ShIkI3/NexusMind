@@ -60,18 +60,6 @@ export default function NotesPage() {
     }
   }, [activeNoteId])
 
-  // Ctrl+S / Cmd+S to save
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        saveNote()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveNote])
-
   async function loadNotes() {
     try {
       const { data } = await notesApi.list({
@@ -87,21 +75,6 @@ export default function NotesPage() {
       const { data } = await notesApi.listFolders()
       setFolders(data)
     } catch {}
-  }
-
-  async function createNote() {
-    try {
-      const { data } = await notesApi.create({
-        title: 'Untitled Note',
-        content: '',
-        content_html: '',
-        folder_id: selectedFolder,
-      })
-      addNote(data)
-      setActiveNoteId(data.id)
-    } catch {
-      toast.error('Failed to create note')
-    }
   }
 
   const saveNote = useCallback(async () => {
@@ -121,6 +94,34 @@ export default function NotesPage() {
       setSaving(false)
     }
   }, [activeNoteId, editor, title, tags])
+
+  // Ctrl+S / Cmd+S to save
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        saveNote()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [saveNote])
+
+  async function createNote() {
+    try {
+      const { data } = await notesApi.create({
+        title: 'Untitled Note',
+        content: '',
+        content_html: '',
+        folder_id: selectedFolder,
+      })
+      addNote(data)
+      setActiveNoteId(data.id)
+    } catch {
+      toast.error('Failed to create note')
+    }
+  }
+
 
   async function removeNote(id: number) {
     try {
