@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+import os
 
 from app.core.ai_manager import ai_manager
 from app.core.config import settings
@@ -50,6 +51,7 @@ def get_config():
     return {
         "ollama_base_url": settings.OLLAMA_BASE_URL,
         "ollama_default_model": settings.OLLAMA_DEFAULT_MODEL,
+        # Return configured flags (not actual keys for security)
         "openai_configured": bool(settings.OPENAI_API_KEY),
         "openai_base_url": settings.OPENAI_BASE_URL,
         "openai_default_model": settings.OPENAI_DEFAULT_MODEL,
@@ -64,7 +66,7 @@ def get_config():
 
 @router.put("/config")
 def update_config(data: ProviderConfig):
-    """Update AI provider settings at runtime."""
+    """Update AI provider settings at runtime and persist to .env file."""
     update_map = {
         "ollama_base_url": "OLLAMA_BASE_URL",
         "ollama_default_model": "OLLAMA_DEFAULT_MODEL",
@@ -84,7 +86,46 @@ def update_config(data: ProviderConfig):
         if value is not None:
             setattr(settings, setting_key, value)
             updated.append(field)
+
+    # Persist non-empty values to .env file
+    if updated:
+        _persist_to_env(data, update_map)
+
     return {"updated": updated}
+
+
+def _persist_to_env(data: ProviderConfig, update_map: dict):
+    """Write updated settings back to the .env file."""
+    import re
+    env_path = ".env"
+
+    # Read existing lines
+    lines: list[str] = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = [line.rstrip("\n") for line in f]
+
+    # Update or append values
+    for field, env_key in update_map.items():
+        value = getattr(data, field, None)
+        if value is None:
+            continue
+        pattern = re.compile(r"^\s*" + re.escape(env_key) + r"\s*=")
+        found = False
+        for i, line in enumerate(lines):
+            if pattern.match(line):
+                lines[i] = f"{env_key}={value}"
+                found = True
+                break
+        if not found:
+            lines.append(f"{env_key}={value}")
+
+    try:
+        with open(env_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Could not persist .env: %s", e)
 
 
 @router.post("/test/{provider}")

@@ -60,6 +60,18 @@ export default function NotesPage() {
     }
   }, [activeNoteId])
 
+  // Ctrl+S / Cmd+S to save
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        saveNote()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [saveNote])
+
   async function loadNotes() {
     try {
       const { data } = await notesApi.list({
@@ -188,7 +200,6 @@ export default function NotesPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search notes…"
               className="input text-sm pl-8 py-1.5"
-              onKeyDown={(e) => e.key === 'Enter' && loadNotes()}
             />
           </div>
         </div>

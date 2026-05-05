@@ -112,6 +112,16 @@ async def ingest_file(
         raise HTTPException(500, f"Ingestion failed: {e}")
 
 
+@router.get("/documents")
+def list_documents(collection: str = "nexusmind"):
+    """Return unique document IDs in a collection."""
+    try:
+        doc_ids = rag_engine.list_doc_ids(collection)
+        return {"doc_ids": doc_ids, "collection": collection}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to list documents: {e}")
+
+
 @router.delete("/documents/{doc_id}")
 def delete_document(doc_id: str, collection: str = "nexusmind"):
     rag_engine.delete_document(doc_id, collection)

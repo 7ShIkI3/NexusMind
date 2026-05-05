@@ -139,6 +139,22 @@ class RAGEngine:
         if results and results.get("ids"):
             col.delete(ids=results["ids"])
 
+    def list_doc_ids(self, collection: str = "nexusmind") -> list[str]:
+        """Return unique document IDs stored in the collection."""
+        try:
+            col = self._collection(collection)
+            results = col.get(include=["metadatas"])
+            seen = set()
+            doc_ids = []
+            for meta in (results.get("metadatas") or []):
+                doc_id = meta.get("doc_id")
+                if doc_id and doc_id not in seen:
+                    seen.add(doc_id)
+                    doc_ids.append(doc_id)
+            return sorted(doc_ids)
+        except Exception:
+            return []
+
     def list_collections(self) -> list[str]:
         if self.client is None:
             return []
