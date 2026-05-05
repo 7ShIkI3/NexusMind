@@ -1,6 +1,9 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -56,3 +59,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.SECRET_KEY == "nexusmind-secret-change-in-production":
+    logger.warning(
+        "Using the default SECRET_KEY. "
+        "Set the SECRET_KEY environment variable before deploying to production."
+    )

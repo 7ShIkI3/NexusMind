@@ -6,6 +6,8 @@ from app.core.rag_engine import rag_engine
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 class QueryRequest(BaseModel):
     query: str
@@ -17,7 +19,7 @@ class QueryRequest(BaseModel):
 class IngestRequest(BaseModel):
     text: str
     doc_id: Optional[str] = None
-    metadata: dict = {}
+    metadata: Optional[dict] = None
     collection: str = "nexusmind"
 
 
@@ -75,6 +77,8 @@ async def ingest_file(
     doc_id: Optional[str] = Form(None),
 ):
     content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"File too large. Maximum allowed size is {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
     filename = file.filename or "uploaded_file"
 
     # Try to extract text
