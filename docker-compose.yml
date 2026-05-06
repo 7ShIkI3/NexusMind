@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build: ./backend
@@ -32,9 +30,12 @@ services:
     container_name: nexusmind-rag
     ports:
       - "8001:8001"
+    env_file:
+      - ./backend/.env
     environment:
       - CHROMA_DB_PATH=./data/chroma_db
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - SECRET_KEY=${SECRET_KEY:-nexusmind-secret-change-in-production}
     volumes:
       - ./backend/data:/app/data
     restart: unless-stopped
