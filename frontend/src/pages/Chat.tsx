@@ -259,7 +259,7 @@ export default function ChatPage() {
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
             list="models-datalist"
-            placeholder={models.length > 0 ? 'Select or type model…' : (selectedModel || 'e.g. llama3')}
+            placeholder={models.length > 0 ? 'Select or type model…' : 'e.g. llama3'}
             className="input text-sm py-1 flex-1 max-w-[200px]"
           />
           <datalist id="models-datalist">

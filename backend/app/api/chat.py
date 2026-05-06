@@ -293,10 +293,9 @@ def _parse_agent_actions(text: str) -> list[dict]:
 
 
 async def _execute_agent_actions(
-    actions: list[dict], db: Session, background_tasks: "BackgroundTasks"
+    actions: list[dict], db: Session, background_tasks: BackgroundTasks
 ) -> list[dict]:
     """Execute parsed agent actions and return results."""
-    from fastapi import BackgroundTasks as BT
     from app.models.note import Note
     from app.models.graph import GraphNode
     from app.core.graph_engine import graph_engine
@@ -362,8 +361,9 @@ async def _execute_agent_actions(
                     results.append({"type": "add_graph_edge", "success": False,
                                      "error": f"Node(s) not found: {', '.join(missing)}"})
         except Exception:
-            logger.exception("Agent action failed: %s", action.get("type"))
-            results.append({"type": action.get("type"), "success": False,
+            action_type = action.get("type", "<unknown>")
+            logger.exception("Agent action failed for action type '%s'", action_type)
+            results.append({"type": action_type, "success": False,
                              "error": "Action failed — see server logs for details."})
     return results
 
