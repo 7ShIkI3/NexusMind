@@ -1,13 +1,59 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
+import logging
 
 from app.core.database import get_db
 from app.models.note import Note, Folder
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/notes", tags=["notes"])
+
+
+def _index_note(note_id: int, title: str, content: str) -> None:
+    """Add or replace a note's chunks in the vector store (runs in background)."""
+    try:
+        from app.core.rag_engine import rag_engine
+        from app.core.database import SessionLocal
+        text = f"{title}\n{content}"
+        rag_engine.add_document(
+            text, doc_id=f"note_{note_id}",
+            metadata={"type": "note", "note_id": note_id, "title": title},
+        )
+        db = SessionLocal()
+        try:
+            note = db.query(Note).filter(Note.id == note_id).first()
+            if note:
+                note.embedding_id = f"note_{note_id}"
+                db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Failed to index note %s in vector store", note_id)
+
+
+def _reindex_note(note_id: int, title: str, content: str) -> None:
+    """Delete then re-add a note's chunks in the vector store (runs in background)."""
+    try:
+        from app.core.rag_engine import rag_engine
+        rag_engine.delete_document(f"note_{note_id}")
+    except Exception:
+        logger.exception("Failed to delete note %s from vector store before re-indexing", note_id)
+        return
+    try:
+        text = f"{title}\n{content}"
+        rag_engine.add_document(
+            text, doc_id=f"note_{note_id}",
+            metadata={"type": "note", "note_id": note_id, "title": title},
+        )
+    except Exception:
+        logger.exception(
+            "Failed to re-add note %s to vector store after deletion; note is no longer indexed",
+            note_id,
+        )
 
 
 class NoteCreate(BaseModel):
@@ -62,7 +108,7 @@ def list_notes(
 
 
 @router.post("/")
-def create_note(data: NoteCreate, db: Session = Depends(get_db)):
+def create_note(data: NoteCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     note = Note(
         title=data.title, content=data.content, content_html=data.content_html,
         tags=data.tags, folder_id=data.folder_id, color=data.color,
@@ -72,18 +118,7 @@ def create_note(data: NoteCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(note)
 
-    # Add to RAG index
-    try:
-        from app.core.rag_engine import rag_engine
-        text = f"{note.title}\n{note.content}"
-        chunk_ids = rag_engine.add_document(
-            text, doc_id=f"note_{note.id}",
-            metadata={"type": "note", "note_id": note.id, "title": note.title},
-        )
-        note.embedding_id = f"note_{note.id}"
-        db.commit()
-    except Exception:
-        pass
+    background_tasks.add_task(_index_note, note.id, note.title, note.content)
 
     return _note_dict(note)
 
@@ -97,7 +132,7 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{note_id}")
-def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_db)):
+def update_note(note_id: int, data: NoteUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(404, "Note not found")
@@ -112,16 +147,7 @@ def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(note)
 
-    # Update RAG index
-    try:
-        from app.core.rag_engine import rag_engine
-        rag_engine.delete_document(f"note_{note.id}")
-        text = f"{note.title}\n{note.content}"
-        rag_engine.add_document(text, doc_id=f"note_{note.id}",
-                                metadata={"type": "note", "note_id": note.id,
-                                          "title": note.title})
-    except Exception:
-        pass
+    background_tasks.add_task(_reindex_note, note.id, note.title, note.content)
 
     return _note_dict(note)
 

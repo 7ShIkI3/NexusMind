@@ -6,6 +6,7 @@ from app.core.database import Base
 
 class Note(Base):
     __tablename__ = "notes"
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(500), nullable=False, default="Untitled")
