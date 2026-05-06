@@ -251,10 +251,15 @@ def _parse_agent_actions(text: str) -> list[dict]:
     ):
         block = match.group(1)
         note_data: dict = {"type": "create_note"}
-        for key in ("title", "content", "tags"):
-            m = re.search(rf'^{key}:\s*(.+?)(?=\n\w+:|$)', block, re.MULTILINE | re.DOTALL)
+        # Parse each key: capture until the next key header (^word:) or end of block
+        for key in ("title", "tags"):
+            m = re.search(rf'^{key}:\s*(.+)', block, re.MULTILINE)
             if m:
                 note_data[key] = m.group(1).strip()
+        # Content may span multiple lines — capture everything after "content:" label
+        content_m = re.search(r'^content:\s*([\s\S]+?)(?=\n\w+:\s|\Z)', block, re.MULTILINE)
+        if content_m:
+            note_data["content"] = content_m.group(1).strip()
         if "title" in note_data or "content" in note_data:
             actions.append(note_data)
 
@@ -287,19 +292,24 @@ def _parse_agent_actions(text: str) -> list[dict]:
     return actions
 
 
-async def _execute_agent_actions(actions: list[dict], db: Session) -> list[dict]:
+async def _execute_agent_actions(
+    actions: list[dict], db: Session, background_tasks: "BackgroundTasks"
+) -> list[dict]:
     """Execute parsed agent actions and return results."""
+    from fastapi import BackgroundTasks as BT
     from app.models.note import Note
-    from app.models.graph import GraphNode, GraphEdge
+    from app.models.graph import GraphNode
     from app.core.graph_engine import graph_engine
-    import uuid
 
     results = []
     for action in actions:
         try:
             if action["type"] == "create_note":
                 tags_raw = action.get("tags", "")
-                tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+                if tags_raw:
+                    tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+                else:
+                    tags = []
                 note = Note(
                     title=action.get("title", "Untitled"),
                     content=action.get("content", ""),
@@ -309,9 +319,8 @@ async def _execute_agent_actions(actions: list[dict], db: Session) -> list[dict]
                 db.add(note)
                 db.commit()
                 db.refresh(note)
-                # Index in RAG background
                 from app.api.notes import _index_note
-                _index_note(note.id, note.title, note.content)
+                background_tasks.add_task(_index_note, note.id, note.title, note.content)
                 results.append({"type": "create_note", "id": note.id,
                                  "title": note.title, "success": True})
 
@@ -323,16 +332,18 @@ async def _execute_agent_actions(actions: list[dict], db: Session) -> list[dict]
                     data={"description": action.get("description", "")},
                 )
                 from app.api.graph import _index_node
-                _index_node(node.node_id, node.label, node.node_type, node.data or {})
+                background_tasks.add_task(
+                    _index_node, node.node_id, node.label, node.node_type, node.data or {}
+                )
                 results.append({"type": "add_graph_node", "id": node.node_id,
                                  "label": node.label, "success": True})
 
             elif action["type"] == "add_graph_edge":
                 src = db.query(GraphNode).filter(
-                    GraphNode.label.ilike(action["source"])
+                    GraphNode.label == action["source"]
                 ).first()
                 tgt = db.query(GraphNode).filter(
-                    GraphNode.label.ilike(action["target"])
+                    GraphNode.label == action["target"]
                 ).first()
                 if src and tgt:
                     edge = graph_engine.add_edge(
@@ -343,16 +354,26 @@ async def _execute_agent_actions(actions: list[dict], db: Session) -> list[dict]
                                      "source": src.label, "target": tgt.label,
                                      "success": True})
                 else:
+                    missing = []
+                    if not src:
+                        missing.append(action["source"])
+                    if not tgt:
+                        missing.append(action["target"])
                     results.append({"type": "add_graph_edge", "success": False,
-                                     "error": f"Node not found: {action['source']} or {action['target']}"})
-        except Exception as exc:
-            logger.exception("Agent action failed: %s", action)
-            results.append({"type": action.get("type"), "success": False, "error": str(exc)})
+                                     "error": f"Node(s) not found: {', '.join(missing)}"})
+        except Exception:
+            logger.exception("Agent action failed: %s", action.get("type"))
+            results.append({"type": action.get("type"), "success": False,
+                             "error": "Action failed — see server logs for details."})
     return results
 
 
 @router.post("/agent")
-async def agent_chat(req: AgentRequest, db: Session = Depends(get_db)):
+async def agent_chat(
+    req: AgentRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     """AI agent that can read notes/graph context and create new content."""
     # Get or create conversation
     if req.conversation_id:
@@ -406,7 +427,7 @@ async def agent_chat(req: AgentRequest, db: Session = Depends(get_db)):
     if tools_enabled:
         actions = _parse_agent_actions(response)
         if actions:
-            executed_actions = await _execute_agent_actions(actions, db)
+            executed_actions = await _execute_agent_actions(actions, db, background_tasks)
 
     # Save assistant message
     ai_msg = Message(conversation_id=conv.id, role="assistant",

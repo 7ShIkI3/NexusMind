@@ -64,16 +64,26 @@ class RAGEngine:
                 metadata={"hnsw:space": "cosine"},
             )
         except Exception as e:
-            # Handle UniqueConstraintError that can occur under concurrent access
-            err_msg = str(e).lower()
-            if "already exists" in err_msg or "unique" in err_msg:
-                try:
+            # Handle UniqueConstraintError that can occur under concurrent access.
+            # ChromaDB raises chromadb.db.base.UniqueConstraintError in this case.
+            try:
+                from chromadb.db.base import UniqueConstraintError
+                if isinstance(e, UniqueConstraintError):
                     return self.client.get_collection(
                         name=name,
                         embedding_function=self.embedding_fn,
                     )
-                except Exception:
-                    pass
+            except ImportError:
+                # Fall back to string matching if the specific class is unavailable
+                err_msg = str(e).lower()
+                if "already exists" in err_msg or "unique" in err_msg:
+                    try:
+                        return self.client.get_collection(
+                            name=name,
+                            embedding_function=self.embedding_fn,
+                        )
+                    except Exception:
+                        pass
             raise
 
     def _chunk_text(self, text: str) -> list[str]:
