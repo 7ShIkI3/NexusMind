@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Provide default configuration if no .env was supplied in the build context
+RUN test -f .env || cp .env.example .env
+
 RUN mkdir -p /app/data /app/extensions/installed
 
 EXPOSE 8000
