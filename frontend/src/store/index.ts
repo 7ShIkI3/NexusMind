@@ -88,6 +88,10 @@ interface AppState {
   ragCollection: string
   setRagEnabled: (v: boolean) => void
   setRagCollection: (c: string) => void
+  useNotesContext: boolean
+  useGraphContext: boolean
+  setUseNotesContext: (v: boolean) => void
+  setUseGraphContext: (v: boolean) => void
 }
 
 export const useStore = create<AppState>()(
@@ -137,6 +141,10 @@ export const useStore = create<AppState>()(
       ragCollection: 'nexusmind',
       setRagEnabled: (v) => set({ ragEnabled: v }),
       setRagCollection: (c) => set({ ragCollection: c }),
+      useNotesContext: false,
+      useGraphContext: false,
+      setUseNotesContext: (v) => set({ useNotesContext: v }),
+      setUseGraphContext: (v) => set({ useGraphContext: v }),
     }),
     {
       name: 'nexusmind-store',
@@ -146,6 +154,8 @@ export const useStore = create<AppState>()(
         selectedModel: state.selectedModel,
         ragEnabled: state.ragEnabled,
         ragCollection: state.ragCollection,
+        useNotesContext: state.useNotesContext,
+        useGraphContext: state.useGraphContext,
         sidebarOpen: state.sidebarOpen,
       }),
     },

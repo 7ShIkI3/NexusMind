@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 import os
 
-from app.core.ai_manager import ai_manager
+from app.core.ai_manager import ai_manager, _normalize_url
 from app.core.config import settings
 
 router = APIRouter(prefix="/ai", tags=["ai-providers"])
@@ -84,6 +84,9 @@ def update_config(data: ProviderConfig):
     for field, setting_key in update_map.items():
         value = getattr(data, field, None)
         if value is not None:
+            # Normalize URL fields
+            if field in ("ollama_base_url", "openai_base_url", "abacus_base_url"):
+                value = _normalize_url(value)
             setattr(settings, setting_key, value)
             updated.append(field)
 
