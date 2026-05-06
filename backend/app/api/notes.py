@@ -40,13 +40,20 @@ def _reindex_note(note_id: int, title: str, content: str) -> None:
     try:
         from app.core.rag_engine import rag_engine
         rag_engine.delete_document(f"note_{note_id}")
+    except Exception:
+        logger.exception("Failed to delete note %s from vector store before re-indexing", note_id)
+        return
+    try:
         text = f"{title}\n{content}"
         rag_engine.add_document(
             text, doc_id=f"note_{note_id}",
             metadata={"type": "note", "note_id": note_id, "title": title},
         )
     except Exception:
-        logger.exception("Failed to re-index note %s in vector store", note_id)
+        logger.exception(
+            "Failed to re-add note %s to vector store after deletion; note is no longer indexed",
+            note_id,
+        )
 
 
 class NoteCreate(BaseModel):
