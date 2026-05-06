@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
 from app.core.database import Base
 
@@ -35,5 +35,5 @@ class Folder(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     notes = relationship("Note", back_populates="folder")
-    children = relationship("Folder", backref="parent",
+    children = relationship("Folder", backref=backref("parent", remote_side=[id]),
                             foreign_keys=[parent_id])
