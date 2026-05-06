@@ -37,10 +37,10 @@ class Settings(BaseSettings):
     OPENAI_DEFAULT_MODEL: str = "gpt-4o"
 
     ANTHROPIC_API_KEY: Optional[str] = None
-    ANTHROPIC_DEFAULT_MODEL: str = "claude-3-5-sonnet-20241022"
+    ANTHROPIC_DEFAULT_MODEL: str = "claude-3-7-sonnet-20250219"
 
     GOOGLE_API_KEY: Optional[str] = None
-    GOOGLE_DEFAULT_MODEL: str = "gemini-1.5-pro"
+    GOOGLE_DEFAULT_MODEL: str = "gemini-2.0-flash"
 
     ABACUS_API_KEY: Optional[str] = None
     ABACUS_BASE_URL: str = "https://api.abacus.ai/v0"

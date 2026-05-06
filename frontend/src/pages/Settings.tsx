@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { aiApi } from '@/utils/api'
-import { Settings, Key, Server, CheckCircle, XCircle, Loader2, RefreshCw, Save, Eye, EyeOff } from 'lucide-react'
+import { Settings, Key, Server, CheckCircle, XCircle, Loader2, RefreshCw, Save, Eye, EyeOff, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
 
@@ -11,6 +11,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<any>({})
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [detectingOllama, setDetectingOllama] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -38,7 +40,34 @@ export default function SettingsPage() {
         abacus_base_url: configRes.data.abacus_base_url || '',
       })
       setProviders(provRes.data)
+      // Load Ollama models in the background (best-effort)
+      loadOllamaModels()
     } catch (err) { console.error('[Settings] loadAll error:', err); toast.error('Failed to load settings') }
+  }
+
+  async function loadOllamaModels() {
+    try {
+      const { data } = await aiApi.getModels('ollama')
+      if (data.models?.length > 0) setOllamaModels(data.models)
+    } catch { /* Ollama may not be running */ }
+  }
+
+  async function detectOllama() {
+    setDetectingOllama(true)
+    try {
+      const { data } = await aiApi.detectOllama()
+      if (data.detected) {
+        setForm((prev: any) => ({ ...prev, ollama_base_url: data.url }))
+        if (data.models?.length > 0) {
+          setOllamaModels(data.models)
+          toast.success(`Ollama detected at ${data.url} — ${data.models.length} model(s) available`)
+        } else {
+          toast.success(`Ollama detected at ${data.url} (no models pulled yet)`)
+        }
+      } else {
+        toast.error('Ollama not found. Make sure it is running on this machine or on the host.')
+      }
+    } catch { toast.error('Ollama detection failed') } finally { setDetectingOllama(false) }
   }
 
   async function save() {
@@ -153,15 +182,37 @@ export default function SettingsPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-400 mb-1 block">Base URL</label>
-            <input className="input text-sm" value={form.ollama_base_url || ''}
-              onChange={(e) => setForm({ ...form, ollama_base_url: e.target.value })}
-              placeholder="http://localhost:11434" />
+            <div className="flex gap-1">
+              <input className="input text-sm flex-1" value={form.ollama_base_url || ''}
+                onChange={(e) => setForm({ ...form, ollama_base_url: e.target.value })}
+                placeholder="http://localhost:11434" />
+              <button
+                onClick={detectOllama}
+                disabled={detectingOllama}
+                className="btn-ghost text-xs px-2 py-1 flex-shrink-0"
+                title="Auto-detect Ollama (tries localhost, host.docker.internal, 172.17.0.1)"
+              >
+                {detectingOllama ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              </button>
+            </div>
           </div>
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
-            <input className="input text-sm" value={form.ollama_default_model || ''}
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-gray-400">Default Model</label>
+              {ollamaModels.length > 0 && (
+                <span className="text-[10px] text-nexus-400">{ollamaModels.length} available</span>
+              )}
+            </div>
+            <input
+              className="input text-sm"
+              value={form.ollama_default_model || ''}
               onChange={(e) => setForm({ ...form, ollama_default_model: e.target.value })}
-              placeholder="llama3" />
+              list="ollama-models-list"
+              placeholder={ollamaModels.length > 0 ? 'Select or type model…' : 'llama3.2'}
+            />
+            <datalist id="ollama-models-list">
+              {ollamaModels.map((m) => <option key={m} value={m} />)}
+            </datalist>
           </div>
         </div>
       </section>
@@ -191,7 +242,7 @@ export default function SettingsPage() {
               <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
               <input className="input text-sm" value={form.openai_default_model || ''}
                 onChange={(e) => setForm({ ...form, openai_default_model: e.target.value })}
-                placeholder="gpt-4o" />
+                placeholder="gpt-4.1" />
             </div>
           </div>
         </div>
@@ -215,7 +266,7 @@ export default function SettingsPage() {
             <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
             <input className="input text-sm" value={form.anthropic_default_model || ''}
               onChange={(e) => setForm({ ...form, anthropic_default_model: e.target.value })}
-              placeholder="claude-3-5-sonnet-20241022" />
+              placeholder="claude-3-7-sonnet-20250219" />
           </div>
         </div>
       </section>
@@ -238,7 +289,7 @@ export default function SettingsPage() {
             <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
             <input className="input text-sm" value={form.google_default_model || ''}
               onChange={(e) => setForm({ ...form, google_default_model: e.target.value })}
-              placeholder="gemini-1.5-pro" />
+              placeholder="gemini-2.0-flash" />
           </div>
         </div>
       </section>

@@ -91,6 +91,7 @@ export const aiApi = {
   getConfig: () => api.get('/ai/config'),
   updateConfig: (data: any) => api.put('/ai/config', data),
   testProvider: (provider: string) => api.post(`/ai/test/${provider}`),
+  detectOllama: () => api.get('/ai/ollama/detect'),
 }
 
 // Streaming helper

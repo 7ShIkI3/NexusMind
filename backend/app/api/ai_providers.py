@@ -131,6 +131,46 @@ def _persist_to_env(data: ProviderConfig, update_map: dict):
         logging.getLogger(__name__).warning("Could not persist .env: %s", e)
 
 
+@router.get("/ollama/detect")
+async def detect_ollama():
+    """Probe candidate URLs to find a reachable Ollama instance.
+
+    Tries the currently-configured URL first, then common addresses for
+    Ollama running on the host (useful when the backend itself is in Docker
+    but Ollama is running directly on the host machine).
+    """
+    import httpx
+
+    candidates = [
+        settings.OLLAMA_BASE_URL,
+        "http://localhost:11434",
+        "http://host.docker.internal:11434",
+        "http://172.17.0.1:11434",
+    ]
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for url in candidates:
+        normalized = _normalize_url(url)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            unique.append(normalized)
+
+    for url in unique:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"{url}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [m["name"] for m in data.get("models", [])]
+                    return {"detected": True, "url": url, "models": models}
+        except Exception:
+            continue
+
+    return {"detected": False, "url": None, "models": []}
+
+
 @router.post("/test/{provider}")
 async def test_provider(provider: str):
     """Send a simple test message to a provider."""
