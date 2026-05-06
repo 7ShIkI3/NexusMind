@@ -16,6 +16,7 @@ export const chatApi = {
   deleteConversation: (id: number) => api.delete(`/chat/conversations/${id}`),
   listProviders: () => api.get('/chat/providers'),
   listModels: (provider: string) => api.get(`/chat/models/${provider}`),
+  agent: (data: any) => api.post('/chat/agent', data),
 }
 
 // --- Notes ---

@@ -21,7 +21,7 @@ def _get_chroma():
         os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
         client = chromadb.PersistentClient(
             path=settings.CHROMA_DB_PATH,
-            settings=ChromaSettings(anonymized_telemetry=False),
+            settings=ChromaSettings(anonymized_telemetry=False, allow_reset=True),
         )
         return client
     except ImportError:
@@ -57,11 +57,34 @@ class RAGEngine:
     def _collection(self, name: str = "nexusmind"):
         if self.client is None:
             raise RuntimeError("ChromaDB not available")
-        return self.client.get_or_create_collection(
-            name=name,
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"},
-        )
+        try:
+            return self.client.get_or_create_collection(
+                name=name,
+                embedding_function=self.embedding_fn,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as e:
+            # Handle UniqueConstraintError that can occur under concurrent access.
+            # ChromaDB raises chromadb.db.base.UniqueConstraintError in this case.
+            try:
+                from chromadb.db.base import UniqueConstraintError
+                if isinstance(e, UniqueConstraintError):
+                    return self.client.get_collection(
+                        name=name,
+                        embedding_function=self.embedding_fn,
+                    )
+            except ImportError:
+                # Fall back to string matching if the specific class is unavailable
+                err_msg = str(e).lower()
+                if "already exists" in err_msg or "unique" in err_msg:
+                    try:
+                        return self.client.get_collection(
+                            name=name,
+                            embedding_function=self.embedding_fn,
+                        )
+                    except Exception:
+                        pass
+            raise
 
     def _chunk_text(self, text: str) -> list[str]:
         """Split text into overlapping chunks."""
@@ -116,6 +139,11 @@ class RAGEngine:
         """Semantic search. Returns list of results with text, score, metadata."""
         col = self._collection(collection)
         k = top_k or settings.RAG_TOP_K
+        # Clamp n_results to actual collection size to avoid ChromaDB warning
+        count = col.count()
+        if count == 0:
+            return []
+        k = min(k, count)
         kwargs = {"query_texts": [query_text], "n_results": k, "include": ["documents", "metadatas", "distances"]}
         if where:
             kwargs["where"] = where

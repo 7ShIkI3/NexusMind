@@ -9,6 +9,16 @@ from typing import AsyncGenerator, Optional
 from app.core.config import settings
 
 
+def _normalize_url(url: str) -> str:
+    """Ensure a URL has an http/https scheme and no trailing slash."""
+    if not url:
+        return url
+    url = url.strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    return url
+
+
 class AIMessage:
     def __init__(self, role: str, content: str):
         self.role = role
@@ -36,12 +46,15 @@ class AIProvider:
 class OllamaProvider(AIProvider):
     name = "ollama"
 
+    def _base_url(self) -> str:
+        return _normalize_url(settings.OLLAMA_BASE_URL)
+
     async def chat(self, messages: list[dict], model: str = None, **kwargs) -> str:
         import httpx
         model = model or settings.OLLAMA_DEFAULT_MODEL
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
-                f"{settings.OLLAMA_BASE_URL}/api/chat",
+                f"{self._base_url()}/api/chat",
                 json={"model": model, "messages": messages, "stream": False},
             )
             resp.raise_for_status()
@@ -56,7 +69,7 @@ class OllamaProvider(AIProvider):
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
-                f"{settings.OLLAMA_BASE_URL}/api/chat",
+                f"{self._base_url()}/api/chat",
                 json={"model": model, "messages": messages, "stream": True},
             ) as resp:
                 async for line in resp.aiter_lines():
@@ -73,14 +86,15 @@ class OllamaProvider(AIProvider):
         import httpx
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+                resp = await client.get(f"{self._base_url()}/api/tags")
                 data = resp.json()
                 return [m["name"] for m in data.get("models", [])]
         except Exception:
             return []
 
     def available(self) -> bool:
-        return True
+        url = self._base_url()
+        return bool(url and url.startswith(("http://", "https://")))
 
 
 class OpenAIProvider(AIProvider):

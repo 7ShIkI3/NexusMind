@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '@/store'
 import { chatApi, ragApi, streamChat } from '@/utils/api'
-import { Send, Plus, Trash2, Bot, User, Cpu, ToggleLeft, ToggleRight, Square, ChevronDown, ChevronUp } from 'lucide-react'
+import { Send, Plus, Trash2, Bot, User, Cpu, ToggleLeft, ToggleRight, Square, ChevronDown, ChevronUp, FileText, Share2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import ReactMarkdown from 'react-markdown'
@@ -14,6 +14,7 @@ export default function ChatPage() {
     addConversation, deleteConversation,
     selectedProvider, selectedModel,
     ragEnabled, ragCollection, setRagEnabled, setRagCollection,
+    useNotesContext, useGraphContext, setUseNotesContext, setUseGraphContext,
   } = useStore()
 
   const [messages, setMessages] = useState<any[]>([])
@@ -149,6 +150,8 @@ export default function ChatPage() {
       system_prompt: systemPrompt || undefined,
       use_rag: ragEnabled,
       rag_collection: ragCollection,
+      use_notes_context: useNotesContext,
+      use_graph_context: useGraphContext,
       stream: true,
     }
 
@@ -185,7 +188,7 @@ export default function ChatPage() {
         setLoading(false)
       },
     )
-  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection, systemPrompt])
+  }, [input, loading, selectedProvider, selectedModel, activeConversationId, ragEnabled, ragCollection, useNotesContext, useGraphContext, systemPrompt])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -252,18 +255,18 @@ export default function ChatPage() {
               )}
           </select>
 
-          <select
+          <input
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
+            list="models-datalist"
+            placeholder={models.length > 0 ? 'Select or type model…' : 'e.g. llama3'}
             className="input text-sm py-1 flex-1 max-w-[200px]"
-          >
+          />
+          <datalist id="models-datalist">
             {models.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m} />
             ))}
-            {models.length === 0 && (
-              <option value={selectedModel}>{selectedModel || 'Default'}</option>
-            )}
-          </select>
+          </datalist>
 
           <button
             onClick={() => setRagEnabled(!ragEnabled)}
@@ -291,6 +294,34 @@ export default function ChatPage() {
               ))}
             </select>
           )}
+
+          <button
+            onClick={() => setUseNotesContext(!useNotesContext)}
+            className={clsx(
+              'flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border transition-all',
+              useNotesContext
+                ? 'border-blue-500/50 text-blue-400 bg-blue-500/10'
+                : 'border-white/10 text-gray-500',
+            )}
+            title="Include notes as context"
+          >
+            <FileText size={12} />
+            Notes
+          </button>
+
+          <button
+            onClick={() => setUseGraphContext(!useGraphContext)}
+            className={clsx(
+              'flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border transition-all',
+              useGraphContext
+                ? 'border-purple-500/50 text-purple-400 bg-purple-500/10'
+                : 'border-white/10 text-gray-500',
+            )}
+            title="Include graph nodes as context"
+          >
+            <Share2 size={12} />
+            Graph
+          </button>
 
           <button
             onClick={() => setShowSystemPrompt(!showSystemPrompt)}
