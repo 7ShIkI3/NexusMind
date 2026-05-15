@@ -76,23 +76,75 @@ class ExtensionManager:
         spec = importlib.util.spec_from_file_location(f"nexusmind_ext_{slug}", entry_file)
         module = importlib.util.module_from_spec(spec)
         sys.modules[f"nexusmind_ext_{slug}"] = module
+
+        # Remove any existing callbacks that were defined in a previously
+        # loaded module with the same spec name to avoid accumulation of
+        # handlers across reloads.
+        try:
+            mod_name = f"nexusmind_ext_{slug}"
+            for event, lst in list(hooks._hooks.items()):
+                new_list = [cb for cb in lst if getattr(cb, "__module__", None) != mod_name]
+                hooks._hooks[event] = new_list
+        except Exception:
+            pass
+
         spec.loader.exec_module(module)
 
-        if hasattr(module, "setup"):
-            module.setup(hooks)
+        # Proxy hooks to record which callbacks this extension registers so we
+        # can clean them up on unload and avoid duplicate handlers.
+        registered: list[tuple[str, Callable]] = []
 
-        self._loaded[slug] = {"module": module, "manifest": manifest}
+        class HookProxy:
+            def register(self, event: str, callback: Callable):
+                registered.append((event, callback))
+                hooks.register(event, callback)
+
+            async def emit(self, event: str, *args, **kwargs):
+                return await hooks.emit(event, *args, **kwargs)
+
+        hook_proxy = HookProxy()
+
+        if hasattr(module, "setup"):
+            module.setup(hook_proxy)
+
+        # Deduplicate global hooks lists to avoid multiple identical callbacks
+        # accumulating across reloads.
+        try:
+            for event, lst in list(hooks._hooks.items()):
+                seen = set()
+                deduped = []
+                for cb in lst:
+                    if id(cb) in seen:
+                        continue
+                    seen.add(id(cb))
+                    deduped.append(cb)
+                hooks._hooks[event] = deduped
+        except Exception:
+            pass
+
+        self._loaded[slug] = {"module": module, "manifest": manifest, "registered_hooks": registered}
         return True
 
     def unload_extension(self, slug: str) -> bool:
         if slug not in self._loaded:
             return False
         mod = self._loaded[slug]["module"]
+        # Call teardown if present
         if hasattr(mod, "teardown"):
             try:
                 mod.teardown()
             except Exception:
                 pass
+
+        # Remove registered hooks associated with this extension
+        registered = self._loaded[slug].get("registered_hooks") or []
+        for event, cb in registered:
+            try:
+                if event in hooks._hooks and cb in hooks._hooks[event]:
+                    hooks._hooks[event].remove(cb)
+            except Exception:
+                pass
+
         del self._loaded[slug]
         sys.modules.pop(f"nexusmind_ext_{slug}", None)
         return True
@@ -109,6 +161,22 @@ class ExtensionManager:
                 "author": m.get("author", ""),
             })
         return result
+
+    def list_installed_manifests(self) -> list[dict]:
+        manifests = []
+        for ext_dir in self._path.iterdir():
+            if not ext_dir.is_dir():
+                continue
+            manifest_path = ext_dir / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                with open(manifest_path) as f:
+                    manifest = json.load(f)
+                manifests.append({"slug": ext_dir.name, "manifest": manifest})
+            except Exception as e:
+                print(f"[ExtensionManager] Failed reading manifest for {ext_dir.name}: {e}")
+        return manifests
 
     def get_manifest(self, slug: str) -> Optional[dict]:
         manifest_path = self._path / slug / "manifest.json"

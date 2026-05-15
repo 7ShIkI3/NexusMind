@@ -1,0 +1,8 @@
+{
+  "name": "Insights Extension",
+  "slug": "insights-extension",
+  "version": "0.1.0",
+  "description": "Example extension to log note events and demonstrate extension loading.",
+  "author": "NexusMind",
+  "entry_point": "main.py"
+}

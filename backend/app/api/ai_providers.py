@@ -1,12 +1,33 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional
-import os
+import logging
+import re
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
 
-from app.core.ai_manager import ai_manager, _normalize_url
+from app.core.ai_manager import ai_manager
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["ai-providers"])
+
+
+def _mask_secret(v: Optional[str]) -> bool:
+    return bool(v)
+
+
+def _mask_value(v: Optional[str]) -> str:
+    if not v:
+        return ""
+    if len(v) <= 8:
+        return "*" * len(v)
+    return v[:4] + "..." + v[-4:]
+
+
+def _http_error(status_code: int, message: str, **extra):
+    payload = {"success": False, "error": message}
+    payload.update(extra)
+    raise HTTPException(status_code=status_code, detail=payload)
 
 
 class ProviderConfig(BaseModel):
@@ -21,17 +42,30 @@ class ProviderConfig(BaseModel):
     google_default_model: Optional[str] = None
     abacus_api_key: Optional[str] = None
     abacus_base_url: Optional[str] = None
+    nvidia_mim_api_key: Optional[str] = None
+    nvidia_mim_base_url: Optional[str] = None
+    nvidia_mim_default_model: Optional[str] = None
+
+    @validator("ollama_base_url", "openai_base_url", "abacus_base_url", "nvidia_mim_base_url")
+    def _validate_urls(cls, v):
+        if v is None:
+            return v
+        if not re.match(r"^https?://", v):
+            raise ValueError("URL must start with http:// or https://")
+        return v
 
 
 @router.get("/providers")
 async def list_providers():
     providers = []
-    for name in ["ollama", "openai", "anthropic", "gemini", "abacus"]:
-        p = ai_manager.get_provider(name)
-        providers.append({
-            "name": name,
-            "available": p.available(),
-        })
+    for name in ["ollama", "openai", "anthropic", "gemini", "abacus", "nvidia_mim"]:
+        try:
+            p = ai_manager.get_provider(name)
+            available = p.available()
+        except Exception:
+            logger.exception("Error checking provider %s", name)
+            available = False
+        providers.append({"name": name, "available": available})
     return providers
 
 
@@ -41,9 +75,11 @@ async def get_models(provider: str):
         models = await ai_manager.list_models(provider)
         return {"provider": provider, "models": models}
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        logger.warning("Model listing error for %s: %s", provider, e)
+        _http_error(HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.exception("Unexpected error listing models for %s", provider)
+        _http_error(HTTP_500_INTERNAL_SERVER_ERROR, "Internal error listing models")
 
 
 @router.get("/config")
@@ -51,22 +87,29 @@ def get_config():
     return {
         "ollama_base_url": settings.OLLAMA_BASE_URL,
         "ollama_default_model": settings.OLLAMA_DEFAULT_MODEL,
-        # Return configured flags (not actual keys for security)
-        "openai_configured": bool(settings.OPENAI_API_KEY),
+        "openai_configured": _mask_secret(settings.OPENAI_API_KEY),
+        "openai_api_key_masked": _mask_value(settings.OPENAI_API_KEY),
         "openai_base_url": settings.OPENAI_BASE_URL,
         "openai_default_model": settings.OPENAI_DEFAULT_MODEL,
-        "anthropic_configured": bool(settings.ANTHROPIC_API_KEY),
+        "anthropic_configured": _mask_secret(settings.ANTHROPIC_API_KEY),
+        "anthropic_api_key_masked": _mask_value(settings.ANTHROPIC_API_KEY),
         "anthropic_default_model": settings.ANTHROPIC_DEFAULT_MODEL,
-        "google_configured": bool(settings.GOOGLE_API_KEY),
+        "google_configured": _mask_secret(settings.GOOGLE_API_KEY),
+        "google_api_key_masked": _mask_value(settings.GOOGLE_API_KEY),
         "google_default_model": settings.GOOGLE_DEFAULT_MODEL,
-        "abacus_configured": bool(settings.ABACUS_API_KEY),
+        "abacus_configured": _mask_secret(settings.ABACUS_API_KEY),
+        "abacus_api_key_masked": _mask_value(settings.ABACUS_API_KEY),
         "abacus_base_url": settings.ABACUS_BASE_URL,
+        "nvidia_mim_configured": _mask_secret(settings.NVIDIA_MIM_API_KEY),
+        "nvidia_mim_api_key_masked": _mask_value(settings.NVIDIA_MIM_API_KEY),
+        "nvidia_mim_base_url": settings.NVIDIA_MIM_BASE_URL,
+        "nvidia_mim_default_model": settings.NVIDIA_MIM_DEFAULT_MODEL,
     }
 
 
 @router.put("/config")
 def update_config(data: ProviderConfig):
-    """Update AI provider settings at runtime and persist to .env file."""
+    """Update AI provider settings at runtime with basic validation and safe logging."""
     update_map = {
         "ollama_base_url": "OLLAMA_BASE_URL",
         "ollama_default_model": "OLLAMA_DEFAULT_MODEL",
@@ -79,96 +122,34 @@ def update_config(data: ProviderConfig):
         "google_default_model": "GOOGLE_DEFAULT_MODEL",
         "abacus_api_key": "ABACUS_API_KEY",
         "abacus_base_url": "ABACUS_BASE_URL",
+        "nvidia_mim_api_key": "NVIDIA_MIM_API_KEY",
+        "nvidia_mim_base_url": "NVIDIA_MIM_BASE_URL",
+        "nvidia_mim_default_model": "NVIDIA_MIM_DEFAULT_MODEL",
     }
     updated = []
+    errors = []
     for field, setting_key in update_map.items():
         value = getattr(data, field, None)
         if value is not None:
-            # Normalize URL fields
-            if field in ("ollama_base_url", "openai_base_url", "abacus_base_url"):
-                value = _normalize_url(value)
-            setattr(settings, setting_key, value)
-            updated.append(field)
+            # basic validation for API keys
+            if field.endswith("api_key"):
+                if not isinstance(value, str) or len(value.strip()) < 8:
+                    errors.append(f"{field} is invalid or too short")
+                    continue
+                # avoid logging raw keys
+            try:
+                setattr(settings, setting_key, value)
+                masked = _mask_value(value) if isinstance(value, str) else str(value)
+                logger.info("Updated setting %s => %s", setting_key, masked)
+                updated.append(field)
+            except Exception:
+                logger.exception("Failed to update setting %s", setting_key)
+                errors.append(f"failed to update {field}")
 
-    # Persist non-empty values to .env file
-    if updated:
-        _persist_to_env(data, update_map)
-
+    if errors:
+        logger.warning("Config update had validation errors: %s", errors)
+        _http_error(HTTP_400_BAD_REQUEST, "Validation errors", updated=updated, errors=errors)
     return {"updated": updated}
-
-
-def _persist_to_env(data: ProviderConfig, update_map: dict):
-    """Write updated settings back to the .env file."""
-    import re
-    env_path = ".env"
-
-    # Read existing lines
-    lines: list[str] = []
-    if os.path.exists(env_path):
-        with open(env_path, "r") as f:
-            lines = [line.rstrip("\n") for line in f]
-
-    # Update or append values
-    for field, env_key in update_map.items():
-        value = getattr(data, field, None)
-        if value is None:
-            continue
-        pattern = re.compile(r"^\s*" + re.escape(env_key) + r"\s*=")
-        found = False
-        for i, line in enumerate(lines):
-            if pattern.match(line):
-                lines[i] = f"{env_key}={value}"
-                found = True
-                break
-        if not found:
-            lines.append(f"{env_key}={value}")
-
-    try:
-        with open(env_path, "w") as f:
-            f.write("\n".join(lines) + "\n")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("Could not persist .env: %s", e)
-
-
-@router.get("/ollama/detect")
-async def detect_ollama():
-    """Probe candidate URLs to find a reachable Ollama instance.
-
-    Tries the currently-configured URL first, then common addresses for
-    Ollama running on the host (useful when the backend itself is in Docker
-    but Ollama is running directly on the host machine).
-    """
-    import httpx
-
-    candidates = [
-        settings.OLLAMA_BASE_URL,
-        "http://localhost:11434",
-        "http://host.docker.internal:11434",
-        "http://172.17.0.1:11434",
-    ]
-
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique: list[str] = []
-    for url in candidates:
-        normalized = _normalize_url(url)
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            unique.append(normalized)
-
-    for url in unique:
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{url}/api/tags")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    models = [m["name"] for m in data.get("models", [])]
-                    return {"detected": True, "url": url, "models": models}
-        except Exception:
-            continue
-
-    return {"detected": False, "url": None, "models": []}
 
 
 @router.post("/test/{provider}")
@@ -179,8 +160,9 @@ async def test_provider(provider: str):
             provider,
             [{"role": "user", "content": "Say hello in one sentence."}],
         )
+        logger.info("Provider test success for %s", provider)
         return {"provider": provider, "response": response, "success": True}
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Provider test error (%s): %s", provider, e, exc_info=True)
+        logger.exception("Provider test error for %s: %s", provider, e)
+        # Return a safe, structured error to the caller
         return {"provider": provider, "error": "Provider test failed. Check configuration.", "success": False}

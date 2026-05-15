@@ -1,59 +1,31 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
+import asyncio
 import logging
 
 from app.core.database import get_db
+from app.core.knowledge_base import delete_knowledge_item, upsert_knowledge_item
+from app.core.graph_engine import graph_engine
+from app.core.rag_engine import rag_engine
+from app.core.extension_manager import hooks
 from app.models.note import Note, Folder
 
+router = APIRouter(prefix="/notes", tags=["notes"])
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/notes", tags=["notes"])
 
-
-def _index_note(note_id: int, title: str, content: str) -> None:
-    """Add or replace a note's chunks in the vector store (runs in background)."""
+def _emit_hook(event: str, payload: dict) -> None:
     try:
-        from app.core.rag_engine import rag_engine
-        from app.core.database import SessionLocal
-        text = f"{title}\n{content}"
-        rag_engine.add_document(
-            text, doc_id=f"note_{note_id}",
-            metadata={"type": "note", "note_id": note_id, "title": title},
-        )
-        db = SessionLocal()
-        try:
-            note = db.query(Note).filter(Note.id == note_id).first()
-            if note:
-                note.embedding_id = f"note_{note_id}"
-                db.commit()
-        finally:
-            db.close()
-    except Exception:
-        logger.exception("Failed to index note %s in vector store", note_id)
-
-
-def _reindex_note(note_id: int, title: str, content: str) -> None:
-    """Delete then re-add a note's chunks in the vector store (runs in background)."""
-    try:
-        from app.core.rag_engine import rag_engine
-        rag_engine.delete_document(f"note_{note_id}")
-    except Exception:
-        logger.exception("Failed to delete note %s from vector store before re-indexing", note_id)
-        return
-    try:
-        text = f"{title}\n{content}"
-        rag_engine.add_document(
-            text, doc_id=f"note_{note_id}",
-            metadata={"type": "note", "note_id": note_id, "title": title},
-        )
-    except Exception:
-        logger.exception(
-            "Failed to re-add note %s to vector store after deletion; note is no longer indexed",
-            note_id,
-        )
+        asyncio.run(hooks.emit(event, payload))
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(hooks.emit(event, payload))
+        else:
+            loop.run_until_complete(hooks.emit(event, payload))
 
 
 class NoteCreate(BaseModel):
@@ -91,9 +63,10 @@ def list_notes(
     folder_id: Optional[int] = None,
     tag: Optional[str] = None,
     search: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0, description="Number of notes to skip"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of notes to return (max 1000)"),
 ):
+    """List notes with pagination and filters."""
     query = db.query(Note)
     if folder_id is not None:
         query = query.filter(Note.folder_id == folder_id)
@@ -103,12 +76,14 @@ def list_notes(
         query = query.filter(
             (Note.title.ilike(f"%{search}%")) | (Note.content.ilike(f"%{search}%"))
         )
+    
+    # Apply pagination
     notes = query.order_by(Note.updated_at.desc()).offset(skip).limit(limit).all()
     return [_note_dict(n) for n in notes]
 
 
 @router.post("/")
-def create_note(data: NoteCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def create_note(data: NoteCreate, db: Session = Depends(get_db)):
     note = Note(
         title=data.title, content=data.content, content_html=data.content_html,
         tags=data.tags, folder_id=data.folder_id, color=data.color,
@@ -118,8 +93,35 @@ def create_note(data: NoteCreate, background_tasks: BackgroundTasks, db: Session
     db.commit()
     db.refresh(note)
 
-    background_tasks.add_task(_index_note, note.id, note.title, note.content)
+    try:
+        text = f"{note.title}\n{note.content}"
+        # rag_engine.add_document will handle both ChromaDB and Graph sync via _safe_graph_sync_for_item
+        rag_engine.add_document(
+            text,
+            doc_id=f"note_{note.id}",
+            metadata={
+                "type": "note",
+                "note_id": note.id,
+                "title": note.title,
+                "source_key": f"note:{note.id}",
+                "source": "note",
+                "tags": note.tags or [],
+                "folder_id": note.folder_id,
+            },
+        )
+        note.embedding_id = f"note_{note.id}"
+        db.commit()
+    except Exception as e:
+        logger.warning("RAG/Graph sync failed for note %s: %s", note.id, e)
 
+    try:
+        text = f"{note.title}\n{note.content}"
+        # auto_link_notes ensures the note is in the graph and links it to others
+        graph_engine.auto_link_notes(db, source_note_id=note.id, note_title=note.title, text=text)
+    except Exception as e:
+        logger.warning("Graph auto-linking failed for note %s: %s", note.id, e)
+
+    _emit_hook("note.created", _note_dict(note))
     return _note_dict(note)
 
 
@@ -132,7 +134,7 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{note_id}")
-def update_note(note_id: int, data: NoteUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_db)):
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(404, "Note not found")
@@ -147,8 +149,33 @@ def update_note(note_id: int, data: NoteUpdate, background_tasks: BackgroundTask
     db.commit()
     db.refresh(note)
 
-    background_tasks.add_task(_reindex_note, note.id, note.title, note.content)
+    try:
+        text = f"{note.title}\n{note.content}"
+        rag_engine.delete_document(f"note_{note.id}")
+        # Re-ingest handles both RAG and Graph updates
+        rag_engine.add_document(
+            text,
+            doc_id=f"note_{note.id}",
+            metadata={
+                "type": "note",
+                "note_id": note.id,
+                "title": note.title,
+                "source_key": f"note:{note.id}",
+                "source": "note",
+                "tags": note.tags or [],
+                "folder_id": note.folder_id,
+            },
+        )
+    except Exception as e:
+        logger.warning("RAG/Graph update failed for note %s: %s", note.id, e)
 
+    try:
+        text = f"{note.title}\n{note.content}"
+        graph_engine.auto_link_notes(db, source_note_id=note.id, note_title=note.title, text=text)
+    except Exception as e:
+        logger.warning("Graph update failed for note %s: %s", note.id, e)
+
+    _emit_hook("note.updated", _note_dict(note))
     return _note_dict(note)
 
 
@@ -158,12 +185,41 @@ def delete_note(note_id: int, db: Session = Depends(get_db)):
     if not note:
         raise HTTPException(404, "Not found")
     try:
-        from app.core.rag_engine import rag_engine
         rag_engine.delete_document(f"note_{note.id}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("RAG delete failed for note %s: %s", note.id, e)
+    try:
+        delete_knowledge_item(db, f"note:{note.id}")
+    except Exception as e:
+        logger.warning("Knowledge delete failed for note %s: %s", note.id, e)
+    try:
+        # Remove graph nodes associated with this note (both the note node
+        # and the knowledge node created for the note) so the graph stays
+        # in sync with the database and RAG.
+        graph_engine.delete_node(db, f"note_{note.id}")
+        graph_engine.delete_node(db, f"knowledge_note_note:{note.id}")
+    except Exception as e:
+        logger.warning("Graph delete failed for note %s: %s", note.id, e)
+    try:
+        # As a safety-net, remove any GraphNode entries whose data references
+        # this note_id (covers cases where nodes were created concurrently
+        # or with slightly different node_id patterns).
+        from app.models.graph import GraphNode, GraphEdge
+        nodes = db.query(GraphNode).all()
+        for n in nodes:
+            try:
+                data = n.data or {}
+                if (n.node_id == f"note_{note.id}") or (n.node_id == f"knowledge_note_note:{note.id}") or (isinstance(data, dict) and data.get("note_id") == note.id):
+                    db.query(GraphEdge).filter((GraphEdge.source_id == n.node_id) | (GraphEdge.target_id == n.node_id)).delete(synchronize_session=False)
+                    db.delete(n)
+            except Exception:
+                continue
+        db.commit()
+    except Exception as e:
+        logger.warning("Graph cleanup failed for note %s: %s", note.id, e)
     db.delete(note)
     db.commit()
+    _emit_hook("note.deleted", {"id": note.id, "title": note.title, "folder_id": note.folder_id})
     return {"deleted": True}
 
 

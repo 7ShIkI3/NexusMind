@@ -19,6 +19,45 @@ class ExtensionConfig(BaseModel):
 @router.get("/")
 def list_extensions(db: Session = Depends(get_db)):
     db_exts = db.query(Extension).all()
+    db_by_slug = {e.slug: e for e in db_exts}
+
+    changed = False
+    for installed in extension_manager.list_installed_manifests():
+        slug = installed["slug"]
+        manifest = installed["manifest"]
+        ext = db_by_slug.get(slug)
+        if ext is None:
+            ext = Extension(
+                name=manifest.get("name", slug),
+                slug=slug,
+                version=manifest.get("version", "1.0.0"),
+                description=manifest.get("description"),
+                author=manifest.get("author"),
+                entry_point=manifest.get("entry_point", "main.py"),
+                enabled=True,
+            )
+            db.add(ext)
+            db_by_slug[slug] = ext
+            changed = True
+            continue
+
+        updated = False
+        for field, value in (
+            ("name", manifest.get("name", ext.name)),
+            ("version", manifest.get("version", ext.version)),
+            ("description", manifest.get("description", ext.description)),
+            ("author", manifest.get("author", ext.author)),
+            ("entry_point", manifest.get("entry_point", ext.entry_point)),
+        ):
+            if getattr(ext, field) != value:
+                setattr(ext, field, value)
+                updated = True
+        changed = changed or updated
+
+    if changed:
+        db.commit()
+        db_exts = db.query(Extension).all()
+
     loaded = {e["slug"]: e for e in extension_manager.list_loaded()}
     return [
         {

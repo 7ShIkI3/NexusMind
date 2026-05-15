@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 
 from app.core.database import get_db, SessionLocal
 from app.core.routine_engine import (
-    routine_engine, run_organize_notes, run_auto_tag, run_auto_link
+    routine_engine, run_organize_notes, run_auto_tag, run_auto_link,
+    run_detect_orphans, run_daily_summary
 )
 from app.core.ai_manager import ai_manager
 from app.core.graph_engine import graph_engine
@@ -18,6 +19,8 @@ ROUTINE_TYPES = {
     "organize_notes": run_organize_notes,
     "auto_tag": run_auto_tag,
     "auto_link": run_auto_link,
+    "detect_orphans": run_detect_orphans,
+    "daily_summary": run_daily_summary,
 }
 
 
@@ -103,8 +106,7 @@ async def run_routine_now(routine_id: int, db: Session = Depends(get_db)):
     if not task_fn:
         raise HTTPException(400, f"Unknown routine type: {routine.routine_type}")
 
-    import asyncio
-    if routine.routine_type == "auto_link":
+    if routine.routine_type in ["auto_link", "detect_orphans"]:
         result = await task_fn(SessionLocal, ai_manager, graph_engine, routine)
     else:
         result = await task_fn(SessionLocal, ai_manager, routine)
@@ -132,12 +134,10 @@ def _schedule_routine(routine: Routine):
     if not task_fn:
         return
 
-    import asyncio
-
     async def job():
         db = SessionLocal()
         try:
-            if routine.routine_type == "auto_link":
+            if routine.routine_type in ["auto_link", "detect_orphans"]:
                 result = await task_fn(SessionLocal, ai_manager, graph_engine, routine)
             else:
                 result = await task_fn(SessionLocal, ai_manager, routine)

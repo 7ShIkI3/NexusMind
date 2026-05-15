@@ -162,7 +162,10 @@ async def run_auto_link(db_session_factory, ai_manager, graph_engine, routine):
             provider = routine.provider or "ollama"
             model = routine.model or None
             response = await ai_manager.chat(provider, messages, model)
-            if "yes" in response.lower():
+            # Handle potential object response from OpenAI
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            if "yes" in response_text.lower():
                 node1 = graph_engine.add_node(db, label=n1.title,
                                               node_type="note", data={"note_id": n1.id})
                 node2 = graph_engine.add_node(db, label=n2.title,
@@ -173,6 +176,90 @@ async def run_auto_link(db_session_factory, ai_manager, graph_engine, routine):
         return {"status": "completed", "edges_created": created_edges}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
+async def run_detect_orphans(db_session_factory, ai_manager, graph_engine, routine):
+    """Detect isolated notes and suggest links via AI."""
+    from app.models.note import Note
+    from app.models.graph import GraphNode
+    db = db_session_factory()
+    try:
+        # Find notes that don't have edges in the graph
+        all_notes = db.query(Note).all()
+        orphans = []
+        for note in all_notes:
+            node_id = f"note_{note.id}"
+            exists = db.query(GraphNode).filter(GraphNode.node_id == node_id).first()
+            if not exists:
+                orphans.append(note)
+        
+        if not orphans:
+            return {"status": "no orphans found"}
+            
+        results = []
+        for orphan in orphans[:5]: # Process 5 at a time
+            # Find potential candidates for linking (random 10 other notes)
+            candidates = db.query(Note).filter(Note.id != orphan.id).limit(10).all()
+            cand_titles = [f"{c.id}: {c.title}" for c in candidates]
+            
+            messages = [
+                {"role": "system", "content": "You are a knowledge architect. Suggest links between an isolated note and other notes."},
+                {"role": "user", "content": f"Isolated Note: {orphan.title}\nContent: {orphan.content[:300]}\n\nPossible candidates:\n" + "\n".join(cand_titles) + "\n\nReturn JSON: {'links': [{'note_id': int, 'reason': str}]}"}
+            ]
+            provider = routine.provider or "ollama"
+            response = await ai_manager.chat(provider, messages, routine.model)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Simple parsing or creation
+            try:
+                import json
+                data = json.loads(response_text)
+                for link in data.get("links", []):
+                    target_id = link["note_id"]
+                    graph_engine.add_or_get_edge(db, f"note_{orphan.id}", f"note_{target_id}", edge_type="suggested", label="suggested")
+                    results.append(f"Linked {orphan.id} to {target_id}")
+            except json.JSONDecodeError as e:
+                logger = __import__('logging').getLogger(__name__)
+                logger.warning(f"Failed to parse link suggestions for orphan {orphan.id}: {e}")
+            except Exception as e:
+                logger = __import__('logging').getLogger(__name__)
+                logger.exception(f"Error linking orphan notes {orphan.id}: {e}")
+            
+        return {"status": "completed", "actions": results}
+    finally:
+        db.close()
+
+async def run_daily_summary(db_session_factory, ai_manager, routine):
+    """Create a summary note of the day's activity."""
+    from app.models.note import Note
+    from datetime import datetime, timedelta, timezone
+    db = db_session_factory()
+    try:
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        recent_notes = db.query(Note).filter(Note.updated_at >= yesterday).all()
+        if not recent_notes:
+            return {"status": "no activity to summarize"}
+            
+        summary_input = "\n".join([f"- {n.title}: {n.content[:100]}" for n in recent_notes])
+        messages = [
+            {"role": "system", "content": "Create a brief summary of today's knowledge activity."},
+            {"role": "user", "content": f"Recent activity:\n{summary_input}\n\nWrite a concise summary note."}
+        ]
+        provider = routine.provider or "ollama"
+        response = await ai_manager.chat(provider, messages, routine.model)
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        
+        # Create summary note
+        summary_note = Note(
+            title=f"Daily Summary - {datetime.now().strftime('%Y-%m-%d')}",
+            content=response_text,
+            tags=["summary", "automated"]
+        )
+        db.add(summary_note)
+        db.commit()
+        return {"status": "summary created", "note_id": summary_note.id}
     finally:
         db.close()
 

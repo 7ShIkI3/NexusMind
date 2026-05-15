@@ -1,0 +1,16 @@
+.git
+.gitignore
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__pycache__
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+data
+data/chroma_db
+extensions/installed
+node_modules
+dist
+*.log

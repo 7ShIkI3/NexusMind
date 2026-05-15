@@ -24,5 +24,5 @@ def get_db():
 
 
 def init_db():
-    from app.models import note, graph, chat, extension, routine  # noqa: F401
+    from app.models import note, graph, chat, extension, routine, knowledge  # noqa: F401
     Base.metadata.create_all(bind=engine)

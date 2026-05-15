@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import { aiApi } from '@/utils/api'
-import { Settings, Key, Server, CheckCircle, XCircle, Loader2, RefreshCw, Save, Eye, EyeOff, Search } from 'lucide-react'
+import { 
+  Settings, Key, Server, CheckCircle, XCircle, Loader2, 
+  RefreshCw, Save, Cpu, Globe, Shield, Activity, Database,
+  Terminal, Zap
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
 
 export default function SettingsPage() {
-  const [config, setConfig] = useState<any>({})
   const [providers, setProviders] = useState<any[]>([])
   const [testing, setTesting] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<any>({})
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
-  const [ollamaModels, setOllamaModels] = useState<string[]>([])
-  const [detectingOllama, setDetectingOllama] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -24,74 +24,33 @@ export default function SettingsPage() {
         aiApi.getConfig(),
         aiApi.listProviders(),
       ])
-      setConfig(configRes.data)
-      // Pre-fill non-secret fields; leave API key fields empty (they are write-only)
-      setForm({
-        ollama_base_url: configRes.data.ollama_base_url || '',
-        ollama_default_model: configRes.data.ollama_default_model || '',
-        openai_api_key: '',
-        openai_base_url: configRes.data.openai_base_url || '',
-        openai_default_model: configRes.data.openai_default_model || '',
-        anthropic_api_key: '',
-        anthropic_default_model: configRes.data.anthropic_default_model || '',
-        google_api_key: '',
-        google_default_model: configRes.data.google_default_model || '',
-        abacus_api_key: '',
-        abacus_base_url: configRes.data.abacus_base_url || '',
-      })
+      setForm(configRes.data)
       setProviders(provRes.data)
-      // Load Ollama models in the background (best-effort)
-      loadOllamaModels()
-    } catch (err) { console.error('[Settings] loadAll error:', err); toast.error('Failed to load settings') }
-  }
-
-  async function loadOllamaModels() {
-    try {
-      const { data } = await aiApi.getModels('ollama')
-      if (data.models?.length > 0) setOllamaModels(data.models)
-    } catch { /* Ollama may not be running */ }
-  }
-
-  async function detectOllama() {
-    setDetectingOllama(true)
-    try {
-      const { data } = await aiApi.detectOllama()
-      if (data.detected) {
-        setForm((prev: any) => ({ ...prev, ollama_base_url: data.url }))
-        if (data.models?.length > 0) {
-          setOllamaModels(data.models)
-          toast.success(`Ollama detected at ${data.url} — ${data.models.length} model(s) available`)
-        } else {
-          toast.success(`Ollama detected at ${data.url} (no models pulled yet)`)
-        }
-      } else {
-        toast.error('Ollama not found. Make sure it is running on this machine or on the host.')
-      }
-    } catch { toast.error('Ollama detection failed') } finally { setDetectingOllama(false) }
+    } catch {}
   }
 
   async function save() {
     setSaving(true)
     try {
-      // Only include API keys if the user actually typed something new
-      const payload: any = {
-        ollama_base_url: form.ollama_base_url || undefined,
-        ollama_default_model: form.ollama_default_model || undefined,
-        openai_base_url: form.openai_base_url || undefined,
-        openai_default_model: form.openai_default_model || undefined,
-        anthropic_default_model: form.anthropic_default_model || undefined,
-        google_default_model: form.google_default_model || undefined,
-        abacus_base_url: form.abacus_base_url || undefined,
-      }
-      if (form.openai_api_key) payload.openai_api_key = form.openai_api_key
-      if (form.anthropic_api_key) payload.anthropic_api_key = form.anthropic_api_key
-      if (form.google_api_key) payload.google_api_key = form.google_api_key
-      if (form.abacus_api_key) payload.abacus_api_key = form.abacus_api_key
-
-      await aiApi.updateConfig(payload)
-      toast.success('Settings saved')
+      await aiApi.updateConfig({
+        ollama_base_url: form.ollama_base_url,
+        ollama_default_model: form.ollama_default_model,
+        openai_api_key: form.openai_api_key,
+        openai_base_url: form.openai_base_url,
+        openai_default_model: form.openai_default_model,
+        anthropic_api_key: form.anthropic_api_key,
+        anthropic_default_model: form.anthropic_default_model,
+        google_api_key: form.google_api_key,
+        google_default_model: form.google_default_model,
+        abacus_api_key: form.abacus_api_key,
+        abacus_base_url: form.abacus_base_url,
+        nvidia_mim_api_key: form.nvidia_mim_api_key,
+        nvidia_mim_base_url: form.nvidia_mim_base_url,
+        nvidia_mim_default_model: form.nvidia_mim_default_model,
+      })
+      toast.success('Core configuration synchronized')
       loadAll()
-    } catch { toast.error('Save failed') } finally { setSaving(false) }
+    } catch { toast.error('Synchronization failed') } finally { setSaving(false) }
   }
 
   async function testProvider(name: string) {
@@ -99,223 +58,287 @@ export default function SettingsPage() {
     try {
       const { data } = await aiApi.testProvider(name)
       if (data.success) {
-        toast.success(`${name}: ${data.response?.slice(0, 80)}`)
+        const respText = typeof data.response === 'string' 
+          ? data.response 
+          : data.response?.content || JSON.stringify(data.response)
+        toast.success(`${name}: ${respText?.slice(0, 80)}...`)
       } else {
         toast.error(`${name}: ${data.error}`)
       }
-    } catch { toast.error('Test failed') } finally { setTesting(null) }
-  }
-
-  function toggleShowKey(key: string) {
-    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  function ConfiguredBadge({ configured }: { configured: boolean }) {
-    return configured
-      ? <span className="badge bg-green-500/10 text-green-400 text-[10px]">✓ Configured</span>
-      : <span className="badge bg-gray-500/10 text-gray-500 text-[10px]">Not set</span>
-  }
-
-  function ProviderStatus({ name }: { name: string }) {
-    const p = providers.find((x) => x.name === name)
-    if (!p) return null
-    return p.available
-      ? <CheckCircle size={14} className="text-green-400" />
-      : <XCircle size={14} className="text-gray-600" />
-  }
-
-  function ApiKeyField({ field, placeholder, configuredKey }: {
-    field: string; placeholder: string; configuredKey?: string
-  }) {
-    const isConfigured = configuredKey ? config[configuredKey] : false
-    const visible = showKeys[field]
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-400">API Key</label>
-          {configuredKey && <ConfiguredBadge configured={isConfigured} />}
-        </div>
-        <div className="relative">
-          <input
-            className="input text-sm font-mono pr-9"
-            type={visible ? 'text' : 'password'}
-            value={form[field] || ''}
-            onChange={(e) => setForm({ ...form, [field]: e.target.value })}
-            placeholder={isConfigured ? '(leave blank to keep existing)' : placeholder}
-          />
-          <button
-            type="button"
-            onClick={() => toggleShowKey(field)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-          >
-            {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-        </div>
-      </div>
-    )
+    } catch { toast.error('Neural link test failed') } finally { setTesting(null) }
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white flex items-center gap-2">
-          <Settings size={20} className="text-nexus-400" /> Settings
-        </h1>
-        <button onClick={save} disabled={saving} className="btn-primary">
-          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          Save All
+    <div className="flex h-full w-full bg-surface-300 rounded-[2.5rem] overflow-hidden border border-white/5 shadow-2xl page-enter relative overflow-y-auto custom-scrollbar p-8 md:p-12">
+      <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-nexus-500/5 to-transparent pointer-events-none" />
+      
+      <div className="max-w-4xl mx-auto w-full space-y-12 relative z-10">
+        
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-white/5 pb-10">
+          <div className="space-y-4">
+            <h1 className="text-4xl font-bold text-white tracking-tight flex items-center gap-4">
+              <div className="p-3 rounded-[1.25rem] bg-nexus-500/10 text-nexus-400 shadow-glow-indigo">
+                <Settings size={32} />
+              </div>
+              System Core
+            </h1>
+            <p className="text-slate-500 text-base font-medium ml-1 max-w-xl leading-relaxed">
+              Configure neural providers, API endpoints, and global system parameters to optimize cognitive processing.
+            </p>
+          </div>
+          <button 
+            onClick={save} 
+            disabled={saving} 
+            className="btn-primary !py-4.5 !px-8 rounded-2xl shadow-glow-indigo active:scale-95 transition-all flex items-center gap-3 shrink-0"
+          >
+            {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+            <span className="uppercase tracking-[0.2em] text-[11px] font-bold">Synchronize All</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-10">
+          {/* Ollama */}
+          <ConfigSection 
+            icon={<Server size={22} />} 
+            title="Ollama" 
+            subtitle="Local Neural Engine"
+            status={providers.find(p => p.name === 'ollama')?.available}
+            onTest={() => testProvider('ollama')}
+            isTesting={testing === 'ollama'}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <InputField 
+                label="Base Endpoint" 
+                value={form.ollama_base_url} 
+                onChange={(v: string) => setForm({ ...form, ollama_base_url: v })}
+                placeholder="http://localhost:11434"
+              />
+              <InputField 
+                label="Default Model" 
+                value={form.ollama_default_model} 
+                onChange={(v: string) => setForm({ ...form, ollama_default_model: v })}
+                placeholder="llama3"
+              />
+            </div>
+          </ConfigSection>
+
+          {/* OpenAI */}
+          <ConfigSection 
+            icon={<Globe size={22} />} 
+            title="OpenAI Compatible" 
+            subtitle="Cloud Intelligence Network"
+            status={providers.find(p => p.name === 'openai')?.available}
+            onTest={() => testProvider('openai')}
+            isTesting={testing === 'openai'}
+          >
+            <div className="space-y-6">
+              <InputField 
+                label="API Key" 
+                value={form.openai_api_key} 
+                onChange={(v: string) => setForm({ ...form, openai_api_key: v })}
+                placeholder="sk-..."
+                type="password"
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <InputField 
+                  label="Base URL" 
+                  value={form.openai_base_url} 
+                  onChange={(v: string) => setForm({ ...form, openai_base_url: v })}
+                  placeholder="https://api.openai.com/v1"
+                />
+                <InputField 
+                  label="Default Model" 
+                  value={form.openai_default_model} 
+                  onChange={(v: string) => setForm({ ...form, openai_default_model: v })}
+                  placeholder="gpt-4o"
+                />
+              </div>
+            </div>
+          </ConfigSection>
+
+          {/* Anthropic */}
+          <ConfigSection 
+            icon={<Zap size={22} />} 
+            title="Anthropic Claude" 
+            subtitle="Advanced Reasoning Core"
+            status={providers.find(p => p.name === 'anthropic')?.available}
+            onTest={() => testProvider('anthropic')}
+            isTesting={testing === 'anthropic'}
+          >
+            <div className="space-y-6">
+              <InputField 
+                label="API Key" 
+                value={form.anthropic_api_key} 
+                onChange={(v: string) => setForm({ ...form, anthropic_api_key: v })}
+                placeholder="sk-ant-..."
+                type="password"
+              />
+              <InputField 
+                label="Default Model" 
+                value={form.anthropic_default_model} 
+                onChange={(v: string) => setForm({ ...form, anthropic_default_model: v })}
+                placeholder="claude-3-5-sonnet-20241022"
+              />
+            </div>
+          </ConfigSection>
+
+          {/* Google Gemini */}
+          <ConfigSection 
+            icon={<Activity size={22} />} 
+            title="Google Gemini" 
+            subtitle="Multimodal Synthesis"
+            status={providers.find(p => p.name === 'gemini')?.available}
+            onTest={() => testProvider('gemini')}
+            isTesting={testing === 'gemini'}
+          >
+            <div className="space-y-6">
+              <InputField 
+                label="API Key" 
+                value={form.google_api_key} 
+                onChange={(v: string) => setForm({ ...form, google_api_key: v })}
+                placeholder="AIza..."
+                type="password"
+              />
+              <InputField 
+                label="Default Model" 
+                value={form.google_default_model} 
+                onChange={(v: string) => setForm({ ...form, google_default_model: v })}
+                placeholder="gemini-1.5-pro"
+              />
+            </div>
+          </ConfigSection>
+
+          {/* NVIDIA MIM */}
+          <ConfigSection 
+            icon={<Cpu size={22} />} 
+            title="NVIDIA MIM" 
+            subtitle="High-Performance Inference"
+            status={providers.find(p => p.name === 'nvidia_mim')?.available}
+            onTest={() => testProvider('nvidia_mim')}
+            isTesting={testing === 'nvidia_mim'}
+          >
+            <div className="space-y-6">
+              <InputField 
+                label="API Key" 
+                value={form.nvidia_mim_api_key} 
+                onChange={(v: string) => setForm({ ...form, nvidia_mim_api_key: v })}
+                placeholder="NVIDIA MIM API key"
+                type="password"
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <InputField 
+                  label="Base URL" 
+                  value={form.nvidia_mim_base_url} 
+                  onChange={(v: string) => setForm({ ...form, nvidia_mim_base_url: v })}
+                  placeholder="https://api.nvidia.com/mim"
+                />
+                <InputField 
+                  label="Default Model" 
+                  value={form.nvidia_mim_default_model} 
+                  onChange={(v: string) => setForm({ ...form, nvidia_mim_default_model: v })}
+                  placeholder="mim-large"
+                />
+              </div>
+            </div>
+          </ConfigSection>
+
+          {/* Abacus */}
+          <ConfigSection 
+            icon={<Database size={22} />} 
+            title="Abacus.AI" 
+            subtitle="Specialized Neural Workloads"
+            status={providers.find(p => p.name === 'abacus')?.available}
+            onTest={() => testProvider('abacus')}
+            isTesting={testing === 'abacus'}
+          >
+            <div className="space-y-6">
+              <InputField 
+                label="API Key" 
+                value={form.abacus_api_key} 
+                onChange={(v: string) => setForm({ ...form, abacus_api_key: v })}
+                placeholder="Your Abacus API key"
+                type="password"
+              />
+              <InputField 
+                label="Base URL" 
+                value={form.abacus_base_url} 
+                onChange={(v: string) => setForm({ ...form, abacus_base_url: v })}
+                placeholder="https://api.abacus.ai/v0"
+              />
+            </div>
+          </ConfigSection>
+        </div>
+
+        {/* System Info Deco */}
+        <div className="pt-10 flex flex-col items-center gap-6">
+          <div className="flex items-center gap-4 px-6 py-3 rounded-2xl bg-white/5 border border-white/5 backdrop-blur-md">
+            <Terminal size={14} className="text-slate-600" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em]">Environment: Production / Neural-v2</span>
+          </div>
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ConfigSection({ icon, title, subtitle, status, onTest, isTesting, children }: any) {
+  return (
+    <div className="glass-panel p-10 rounded-[3rem] border border-white/5 bg-white/5 shadow-2xl relative overflow-hidden group transition-all duration-500 hover:border-nexus-500/20">
+      <div className="absolute -top-24 -right-24 w-64 h-64 bg-nexus-500/5 rounded-full blur-3xl group-hover:bg-nexus-500/10 transition-colors duration-1000" />
+      
+      <div className="flex items-center justify-between mb-10 relative z-10">
+        <div className="flex items-center gap-5">
+          <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-nexus-400 group-hover:scale-110 group-hover:rotate-6 transition-all duration-700 border border-white/10 shadow-inner">
+            {icon}
+          </div>
+          <div>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-white tracking-tight">{title}</h2>
+              {status !== undefined && (
+                status 
+                  ? <CheckCircle size={16} className="text-emerald-400 shadow-glow-emerald" />
+                  : <XCircle size={16} className="text-slate-600" />
+              )}
+            </div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">{subtitle}</p>
+          </div>
+        </div>
+        
+        <button 
+          onClick={onTest} 
+          disabled={isTesting}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all active:scale-95 group/btn"
+        >
+          {isTesting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} className="group-hover/btn:rotate-180 transition-transform duration-500" />}
+          Test Link
         </button>
       </div>
 
-      {/* Ollama */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Server size={16} className="text-nexus-400" />
-          <h2 className="font-semibold text-white">Ollama (Local AI)</h2>
-          <ProviderStatus name="ollama" />
-          <button onClick={() => testProvider('ollama')} disabled={testing === 'ollama'}
-            className="btn-ghost text-xs py-1 ml-auto">
-            {testing === 'ollama' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Test
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Base URL</label>
-            <div className="flex gap-1">
-              <input className="input text-sm flex-1" value={form.ollama_base_url || ''}
-                onChange={(e) => setForm({ ...form, ollama_base_url: e.target.value })}
-                placeholder="http://localhost:11434" />
-              <button
-                onClick={detectOllama}
-                disabled={detectingOllama}
-                className="btn-ghost text-xs px-2 py-1 flex-shrink-0"
-                title="Auto-detect Ollama (tries localhost, host.docker.internal, 172.17.0.1)"
-              >
-                {detectingOllama ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-gray-400">Default Model</label>
-              {ollamaModels.length > 0 && (
-                <span className="text-[10px] text-nexus-400">{ollamaModels.length} available</span>
-              )}
-            </div>
-            <input
-              className="input text-sm"
-              value={form.ollama_default_model || ''}
-              onChange={(e) => setForm({ ...form, ollama_default_model: e.target.value })}
-              list="ollama-models-list"
-              placeholder={ollamaModels.length > 0 ? 'Select or type model…' : 'llama3.2'}
-            />
-            <datalist id="ollama-models-list">
-              {ollamaModels.map((m) => <option key={m} value={m} />)}
-            </datalist>
-          </div>
-        </div>
-      </section>
+      <div className="relative z-10">
+        {children}
+      </div>
+    </div>
+  )
+}
 
-      {/* OpenAI */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Key size={16} className="text-nexus-400" />
-          <h2 className="font-semibold text-white">OpenAI / Compatible API</h2>
-          <ProviderStatus name="openai" />
-          <button onClick={() => testProvider('openai')} disabled={testing === 'openai'}
-            className="btn-ghost text-xs py-1 ml-auto">
-            {testing === 'openai' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Test
-          </button>
-        </div>
-        <div className="space-y-3">
-          <ApiKeyField field="openai_api_key" placeholder="sk-..." configuredKey="openai_configured" />
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Base URL</label>
-              <input className="input text-sm" value={form.openai_base_url || ''}
-                onChange={(e) => setForm({ ...form, openai_base_url: e.target.value })}
-                placeholder="https://api.openai.com/v1" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
-              <input className="input text-sm" value={form.openai_default_model || ''}
-                onChange={(e) => setForm({ ...form, openai_default_model: e.target.value })}
-                placeholder="gpt-4.1" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Anthropic */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Key size={16} className="text-nexus-400" />
-          <h2 className="font-semibold text-white">Anthropic Claude</h2>
-          <ProviderStatus name="anthropic" />
-          <button onClick={() => testProvider('anthropic')} disabled={testing === 'anthropic'}
-            className="btn-ghost text-xs py-1 ml-auto">
-            {testing === 'anthropic' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Test
-          </button>
-        </div>
-        <div className="space-y-3">
-          <ApiKeyField field="anthropic_api_key" placeholder="sk-ant-..." configuredKey="anthropic_configured" />
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
-            <input className="input text-sm" value={form.anthropic_default_model || ''}
-              onChange={(e) => setForm({ ...form, anthropic_default_model: e.target.value })}
-              placeholder="claude-3-7-sonnet-20250219" />
-          </div>
-        </div>
-      </section>
-
-      {/* Google Gemini */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Key size={16} className="text-nexus-400" />
-          <h2 className="font-semibold text-white">Google Gemini</h2>
-          <ProviderStatus name="gemini" />
-          <button onClick={() => testProvider('gemini')} disabled={testing === 'gemini'}
-            className="btn-ghost text-xs py-1 ml-auto">
-            {testing === 'gemini' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Test
-          </button>
-        </div>
-        <div className="space-y-3">
-          <ApiKeyField field="google_api_key" placeholder="AIza..." configuredKey="google_configured" />
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Default Model</label>
-            <input className="input text-sm" value={form.google_default_model || ''}
-              onChange={(e) => setForm({ ...form, google_default_model: e.target.value })}
-              placeholder="gemini-2.0-flash" />
-          </div>
-        </div>
-      </section>
-
-      {/* Abacus */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Key size={16} className="text-nexus-400" />
-          <h2 className="font-semibold text-white">Abacus.AI</h2>
-          <ProviderStatus name="abacus" />
-          <button onClick={() => testProvider('abacus')} disabled={testing === 'abacus'}
-            className="btn-ghost text-xs py-1 ml-auto">
-            {testing === 'abacus' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Test
-          </button>
-        </div>
-        <div className="space-y-3">
-          <ApiKeyField field="abacus_api_key" placeholder="Your Abacus API key" configuredKey="abacus_configured" />
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Base URL</label>
-            <input className="input text-sm" value={form.abacus_base_url || ''}
-              onChange={(e) => setForm({ ...form, abacus_base_url: e.target.value })}
-              placeholder="https://api.abacus.ai/v0" />
-          </div>
-        </div>
-      </section>
+function InputField({ label, value, onChange, placeholder, type = 'text' }: any) {
+  return (
+    <div className="space-y-3 group/field">
+      <div className="flex items-center justify-between ml-1">
+        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em] group-focus-within/field:text-nexus-400 transition-colors">{label}</label>
+      </div>
+      <div className="relative">
+        <div className="absolute -inset-0.5 bg-nexus-500/20 rounded-2xl blur opacity-0 group-focus-within/field:opacity-100 transition duration-500" />
+        <input 
+          type={type}
+          className="relative w-full bg-surface-300/50 border border-white/10 rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-nexus-500/50 transition-all text-white font-medium shadow-inner placeholder:text-slate-700"
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      </div>
     </div>
   )
 }

@@ -54,40 +54,11 @@ NexusMind/
 
 ## 🚀 Quick Start
 
-### ⚡ Option 0: Automatic Installer (Easiest)
-
-**Linux / macOS:**
-```bash
-git clone https://github.com/7ShIkI3/NexusMind.git
-cd NexusMind
-bash install.sh
-```
-
-**Windows:**
-```
-1. Download or clone the repo
-2. Double-click install.bat
-3. Follow the on-screen prompts
-```
-
-The installer will:
-- ✅ Check prerequisites (Python 3.9+, Node.js 16+)
-- ✅ Let you choose Local or Docker install
-- ✅ Prompt for AI provider API keys (optional)
-- ✅ Create the `.env` configuration file automatically
-- ✅ Install all dependencies
-- ✅ Offer to start NexusMind immediately
-
----
-
-### Option 1: Docker Compose (Recommended for production)
+### Option 1: Docker Compose (Recommended)
 
 ```bash
 git clone https://github.com/7ShIkI3/NexusMind.git
 cd NexusMind
-# Optional: configure API keys
-cp backend/.env.example backend/.env
-# Edit backend/.env then:
 docker-compose up -d
 ```
 
@@ -95,7 +66,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-### Option 2: Manual Setup (Development)
+### Option 2: Manual Setup
 
 #### Backend
 
@@ -105,14 +76,11 @@ python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env       # Edit .env to add API keys
-mkdir -p data extensions/installed
-
 # Start the backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-The API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs)
+The API docs are available at [http://localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs)
 
 #### Frontend
 
@@ -123,16 +91,6 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
-
-**Quick start script (Linux/macOS):**
-```bash
-./start-dev.sh
-```
-
-**Quick start script (Windows):**
-```
-Double-click start-dev.bat
-```
 
 ---
 
@@ -189,8 +147,9 @@ DATABASE_URL=sqlite:///./data/nexusmind.db
 
 ## 🧩 Creating Extensions
 
-1. Create a folder in `backend/extensions/installed/<your-slug>/`
-2. Add a `manifest.json`:
+Extensions live in the top-level `extensions/installed/` directory (mounted into the backend container at `/app/extensions/installed`). Create a folder for your extension named by its slug, for example `extensions/installed/my-ext/`.
+
+1. Add a `manifest.json`:
 
 ```json
 {
@@ -203,23 +162,68 @@ DATABASE_URL=sqlite:///./data/nexusmind.db
 }
 ```
 
-3. Create `main.py`:
+2. Create `main.py`:
 
 ```python
+import logging
+logger = logging.getLogger("nexusmind.my_ext")
+
 def setup(hooks):
+    def on_note_created(payload):
+        logger.info("note.created: %s", payload.get("title"))
     hooks.register("note.created", on_note_created)
 
-async def on_note_created(note: dict):
-    print(f"New note: {note['title']}")
+def teardown():
+    logger.info("my-ext teardown")
 ```
 
-See `backend/extensions/example-extension/` for a complete example.
+Notes:
+- Use `hooks.register(event, callback)` to subscribe to events. Common events: `note.created`, `note.updated`, `note.deleted`.
+- Prefer logging via the `logging` module instead of printing to stdout. The backend captures logs to help debugging.
+- The backend loads extensions from `extensions/installed/` on startup. To make changes visible in a running container, restart the backend service.
+
+See `extensions/installed/insights-extension/` for a working example.
+
+Additional admin endpoints (backend):
+- `POST /api/v1/admin/cleanup_note/{note_id}` — run a targeted cleanup (RAG, knowledge, graph) for a given note id.
+- `POST /api/v1/admin/sweep_stale_knowledge` — remove knowledge items whose `source_key` references a non-existent note.
+
 
 ---
 
 ## 📡 API Reference
 
-The backend exposes a full REST API. Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+## Production Deploy
+
+For production we provide a `docker-compose.prod.yml` and a helper script `deploy_prod.sh` to build/tag images. Typical workflow:
+
+1. Build and tag images for your registry:
+
+```bash
+./deploy_prod.sh my.registry.example.com/myorg
+```
+
+2. Push images:
+
+```bash
+docker push my.registry.example.com/myorg/nexusmind-backend:latest
+# push the other images similarly
+```
+
+3. On your production host, pull images and run the prod compose:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Notes:
+- The prod compose mounts `./extensions` read-only so your hosted extensions folder is used.
+- Replace filesystem-mounted SQLite with a managed DB for scale; update `DATABASE_URL` in the compose file.
+
+
+## 📡 API Reference
+
+The backend exposes a full REST API. Interactive docs: [http://localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs)
 
 Key endpoints:
 
@@ -245,6 +249,65 @@ Key endpoints:
 **Desktop:** Electron 31
 
 **Deployment:** Docker, Docker Compose, Nginx
+
+---
+
+## ✅ Complete Review Plan Applied
+
+This repository has been reviewed end-to-end (backend, frontend, and deployment) and a prioritized improvement plan has been applied.
+
+### Phase 1: Critical Security & Reliability (Applied)
+
+- Hardened configuration defaults in `backend/app/core/config.py`:
+    - `DEBUG=false` by default
+    - `SECRET_KEY` validation (must be set and length >= 32)
+    - New security limits in settings (`MAX_FILE_SIZE`, `MAX_REQUEST_SIZE`, `MAX_TOOL_RESULT_SIZE`, `RATE_LIMIT_PER_MINUTE`)
+- Secured CORS handling in `backend/app/main.py`:
+    - CORS origins now parsed from env (`CORS_ORIGINS`)
+    - Restricted methods/headers to expected values
+- Added HTTP security middleware in `backend/app/main.py`:
+    - `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`
+    - `Strict-Transport-Security` in non-debug mode
+- Added request-size protection in `backend/app/main.py`:
+    - Rejects oversized payloads with HTTP `413`
+- Replaced silent exception swallowing in `backend/app/core/routine_engine.py` with explicit logging.
+
+### Phase 2: Input Validation & Abuse Protection (Applied)
+
+- Added centralized tool argument validators in `backend/app/core/tool_validators.py`.
+- Integrated validation into chat tool execution in `backend/app/api/chat.py`.
+- Added safe file creation rules:
+    - strict filename validation
+    - path traversal protection
+    - max content size enforcement
+- Added per-IP in-memory rate limiting middleware in `backend/app/main.py`.
+
+### Phase 3: Performance & API Consistency (Applied)
+
+- Added graph caching in `backend/app/core/graph_engine.py` to avoid rebuilding graph on every request.
+- Added cache invalidation on graph mutations (add/update/delete node/edge).
+- Standardized pagination responses:
+    - `GET /api/v1/notes/` now returns `items`, `total`, `skip`, `limit`, `has_more`
+    - `GET /api/v1/chat/conversations` now returns `items`, `total`, `skip`, `limit`, `has_more`
+- Added reusable pagination helper in `backend/app/core/pagination.py`.
+
+### Phase 4: Test Coverage (Applied)
+
+- Added focused security tests in `backend/tests/test_tool_validators.py`.
+- Validated tests locally:
+    - `4 passed`
+
+### Runtime Validation Performed
+
+- Backend Python modules compile successfully (`python -m compileall backend/app`).
+- Docker services are up (`backend`, `frontend`, `rag-server`).
+
+### Recommended Next Steps (Not yet applied)
+
+- Add authentication/authorization (JWT or session-based) for all API endpoints.
+- Add DB migrations workflow with Alembic for production schema evolution.
+- Add frontend-side attachment type/size validation in chat upload UX.
+- Add integration tests for tool calls and RAG consistency workflows.
 
 ---
 

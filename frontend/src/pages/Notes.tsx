@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useStore } from '@/store'
-import { notesApi } from '@/utils/api'
+import { notesApi, graphApi } from '@/utils/api'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Highlight from '@tiptap/extension-highlight'
@@ -10,9 +10,9 @@ import Link from '@tiptap/extension-link'
 import { Color } from '@tiptap/extension-color'
 import TextStyle from '@tiptap/extension-text-style'
 import {
-  Plus, Search, Trash2, Pin, Folder, Tag, Save,
+  Plus, Search, Trash2, Folder, Tag, Save,
   Bold, Italic, List, ListOrdered, Code, Quote,
-  Hash, CheckSquare, Link as LinkIcon, Loader2,
+  Hash, CheckSquare, Loader2, Upload, Download, FolderPlus,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
@@ -23,9 +23,19 @@ export default function NotesPage() {
   const [search, setSearch] = useState('')
   const [selectedFolder, setSelectedFolder] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const [autosaving, setAutosaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
   const [title, setTitle] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [folderParentId, setFolderParentId] = useState<number | null>(null)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const ignoreNextEditorUpdateRef = useRef(false)
+  const autosaveTimerRef = useRef<number | null>(null)
+  const lastSavedSnapshotRef = useRef<string>('')
 
   const editor = useEditor({
     extensions: [
@@ -41,7 +51,13 @@ export default function NotesPage() {
     editorProps: {
       attributes: { class: 'ProseMirror min-h-[400px] focus:outline-none' },
     },
-    onUpdate: () => {},
+    onUpdate: () => {
+      if (ignoreNextEditorUpdateRef.current) {
+        ignoreNextEditorUpdateRef.current = false
+        return
+      }
+      setIsDirty(true)
+    },
   })
 
   useEffect(() => {
@@ -49,16 +65,31 @@ export default function NotesPage() {
     loadFolders()
   }, [])
 
+  const lastActiveNoteIdRef = useRef<number | null>(null)
+
   useEffect(() => {
     if (activeNoteId) {
       const note = notes.find((n) => n.id === activeNoteId)
       if (note && editor) {
-        setTitle(note.title)
-        setTags(note.tags || [])
-        editor.commands.setContent(note.content_html || note.content || '')
+        const idChanged = activeNoteId !== lastActiveNoteIdRef.current
+        if (idChanged || !isDirty) {
+          lastActiveNoteIdRef.current = activeNoteId
+          ignoreNextEditorUpdateRef.current = true
+          setTitle(note.title)
+          setTags(note.tags || [])
+          editor.commands.setContent(note.content_html || note.content || '')
+          lastSavedSnapshotRef.current = JSON.stringify({
+            title: note.title,
+            tags: note.tags || [],
+            content: note.content_html || note.content || '',
+          })
+          setIsDirty(false)
+        }
       }
+    } else {
+      lastActiveNoteIdRef.current = null
     }
-  }, [activeNoteId])
+  }, [activeNoteId, editor, notes, isDirty])
 
   async function loadNotes() {
     try {
@@ -77,36 +108,6 @@ export default function NotesPage() {
     } catch {}
   }
 
-  const saveNote = useCallback(async () => {
-    if (!activeNoteId || !editor) return
-    setSaving(true)
-    try {
-      const content_html = editor.getHTML()
-      const content = editor.getText()
-      const { data } = await notesApi.update(activeNoteId, {
-        title, content, content_html, tags,
-      })
-      updateNote(activeNoteId, data)
-      toast.success('Saved', { duration: 1000 })
-    } catch {
-      toast.error('Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }, [activeNoteId, editor, title, tags])
-
-  // Ctrl+S / Cmd+S to save
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        saveNote()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveNote])
-
   async function createNote() {
     try {
       const { data } = await notesApi.create({
@@ -122,6 +123,70 @@ export default function NotesPage() {
     }
   }
 
+  const saveNote = useCallback(async (options?: { silent?: boolean; autosave?: boolean }) => {
+    if (!activeNoteId || !editor) return
+    const snapshot = JSON.stringify({
+      title,
+      tags,
+      content: editor.getHTML(),
+    })
+    if (snapshot === lastSavedSnapshotRef.current) {
+      setIsDirty(false)
+      return
+    }
+
+    if (options?.autosave) setAutosaving(true)
+    else setSaving(true)
+    try {
+      const content_html = editor.getHTML()
+      const content = editor.getText()
+      const { data } = await notesApi.update(activeNoteId, {
+        title, content, content_html, tags,
+      })
+      updateNote(activeNoteId, data)
+      if (content.trim().length > 30) {
+        await graphApi.extractEntities({
+          note_id: activeNoteId,
+          note_title: title,
+          text: content,
+        })
+      }
+      lastSavedSnapshotRef.current = snapshot
+      setIsDirty(false)
+      if (!options?.silent) {
+        toast.success('Saved', { duration: 1000 })
+      }
+    } catch {
+      if (!options?.silent) {
+        toast.error('Save failed')
+      }
+    } finally {
+      setSaving(false)
+      setAutosaving(false)
+    }
+  }, [activeNoteId, editor, title, tags])
+
+  useEffect(() => {
+    if (!activeNoteId || !isDirty || !editor) return
+    const snapshot = JSON.stringify({
+      title,
+      tags,
+      content: editor.getHTML(),
+    })
+    if (snapshot === lastSavedSnapshotRef.current) return
+
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current)
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      saveNote({ silent: true, autosave: true })
+    }, 1200)
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current)
+      }
+    }
+  }, [activeNoteId, editor, isDirty, title, tags, saveNote])
 
   async function removeNote(id: number) {
     try {
@@ -149,7 +214,90 @@ export default function NotesPage() {
     if (t && !tags.includes(t)) {
       setTags([...tags, t])
       setTagInput('')
+      setIsDirty(true)
     }
+  }
+
+  async function createFolder() {
+    const name = folderName.trim()
+    if (!name) return
+    try {
+      const { data } = await notesApi.createFolder({ name, parent_id: folderParentId })
+      setFolders([...folders, data])
+      setFolderName('')
+      setFolderParentId(null)
+      setShowCreateFolder(false)
+      toast.success('Folder created')
+    } catch {
+      toast.error('Failed to create folder')
+    }
+  }
+
+  function buildFolderTree(parentId: number | null, depth = 0): React.ReactNode[] {
+    return folders
+      .filter((f) => (f.parent_id ?? null) === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .flatMap((f) => [
+        <button
+          key={f.id}
+          onClick={() => setSelectedFolder(f.id)}
+          className={clsx('nav-item w-full text-sm', selectedFolder === f.id && 'active')}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
+        >
+          <Folder size={14} style={{ color: f.color || undefined }} />
+          {f.name}
+        </button>,
+        ...buildFolderTree(f.id, depth + 1),
+      ])
+  }
+
+  async function importMarkdownFile(file: File) {
+    const raw = await file.text()
+    const lines = raw.split(/\r?\n/)
+    const firstLine = lines[0]?.trim() || ''
+    const hasHeading = firstLine.startsWith('# ')
+    const titleFromFile = file.name.replace(/\.md$/i, '') || 'Imported Note'
+    const noteTitle = hasHeading ? firstLine.slice(2).trim() || titleFromFile : titleFromFile
+    const content = hasHeading ? lines.slice(1).join('\n').trim() : raw.trim()
+    const escaped = escapeHtml(content || raw)
+    const contentHtml = `<pre>${escaped}</pre>`
+
+    const { data } = await notesApi.create({
+      title: noteTitle,
+      content: content || raw,
+      content_html: contentHtml,
+      folder_id: selectedFolder,
+    })
+    addNote(data)
+    setActiveNoteId(data.id)
+  }
+
+  async function handleImportClick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await importMarkdownFile(file)
+      toast.success('Markdown imported')
+    } catch {
+      toast.error('Import failed')
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  function exportCurrentNote() {
+    if (!activeNoteId || !editor) return
+    const note = notes.find((n) => n.id === activeNoteId)
+    if (!note) return
+    const safeTitle = (title || note.title || 'note').replace(/[^\w\-]+/g, '_')
+    const markdown = `# ${title || note.title}\n\n${editor.getText()}\n`
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${safeTitle}.md`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -161,16 +309,10 @@ export default function NotesPage() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Folders</span>
             <button
-              onClick={async () => {
-                const name = prompt('Folder name:')
-                if (name) {
-                  const { data } = await notesApi.createFolder({ name })
-                  setFolders([...folders, data])
-                }
-              }}
+              onClick={() => setShowCreateFolder(true)}
               className="text-gray-500 hover:text-white transition-colors"
             >
-              <Plus size={14} />
+              <FolderPlus size={14} />
             </button>
           </div>
           <button
@@ -179,16 +321,7 @@ export default function NotesPage() {
           >
             <Folder size={14} /> All Notes
           </button>
-          {folders.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setSelectedFolder(f.id)}
-              className={clsx('nav-item w-full text-sm', selectedFolder === f.id && 'active')}
-            >
-              <Folder size={14} style={{ color: f.color || undefined }} />
-              {f.name}
-            </button>
-          ))}
+          {buildFolderTree(null)}
         </div>
 
         {/* Search + notes */}
@@ -201,6 +334,7 @@ export default function NotesPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search notes…"
               className="input text-sm pl-8 py-1.5"
+              onKeyDown={(e) => e.key === 'Enter' && loadNotes()}
             />
           </div>
         </div>
@@ -273,7 +407,10 @@ export default function NotesPage() {
               <input
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value)
+                  setIsDirty(true)
+                }}
                 className="flex-1 min-w-0 bg-transparent text-lg font-semibold text-white focus:outline-none placeholder-gray-600 mr-4"
                 placeholder="Note title…"
               />
@@ -289,14 +426,37 @@ export default function NotesPage() {
               <EditorButton icon={Quote} onClick={() => editor?.chain().focus().toggleBlockquote().run()} active={editor?.isActive('blockquote')} title="Blockquote" />
 
               <div className="flex-1" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,text/markdown"
+                className="hidden"
+                onChange={handleImportClick}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-ghost text-sm py-1.5"
+                title="Import Markdown"
+              >
+                <Upload size={14} />
+              </button>
+              <button
+                onClick={exportCurrentNote}
+                className="btn-ghost text-sm py-1.5"
+                title="Export Markdown"
+              >
+                <Download size={14} />
+              </button>
 
               <button
-                onClick={saveNote}
-                disabled={saving}
+                onClick={() => saveNote()}
+                disabled={saving || autosaving}
                 className="btn-primary text-sm py-1.5"
               >
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                Save
+                {(saving || autosaving)
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Save size={14} />}
+                {autosaving ? 'Autosaving…' : isDirty ? 'Save*' : 'Save'}
               </button>
             </div>
 
@@ -308,7 +468,10 @@ export default function NotesPage() {
                   <span
                     key={t}
                     className="badge bg-nexus-500/10 text-nexus-400 cursor-pointer hover:bg-red-500/20 hover:text-red-400"
-                    onClick={() => setTags(tags.filter((x) => x !== t))}
+                    onClick={() => {
+                      setTags(tags.filter((x) => x !== t))
+                      setIsDirty(true)
+                    }}
                   >
                     {t} ×
                   </span>
@@ -341,6 +504,44 @@ export default function NotesPage() {
           </div>
         )}
       </div>
+
+      {showCreateFolder && (
+        <Modal title="Create Folder" onClose={() => setShowCreateFolder(false)}>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Folder name</label>
+              <input
+                className="input"
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                placeholder="Project Ideas"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Parent folder</label>
+              <select
+                className="input"
+                value={folderParentId ?? ''}
+                onChange={(e) => setFolderParentId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Root</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={createFolder} disabled={!folderName.trim()} className="btn-primary flex-1">
+                Create
+              </button>
+              <button onClick={() => setShowCreateFolder(false)} className="btn-ghost flex-1">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -362,4 +563,24 @@ function EditorButton({
       <Icon size={14} />
     </button>
   )
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="card w-96 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-white mb-4">{title}</h2>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

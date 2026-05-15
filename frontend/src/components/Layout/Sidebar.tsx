@@ -3,11 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   MessageSquare, FileText, Share2, Database,
   Puzzle, Settings, Zap, ChevronLeft, ChevronRight,
-  Brain, Folder, Plus,
+  Brain, LayoutDashboard,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const navItems = [
+  { id: 'dashboard', path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { id: 'chat',       path: '/chat',       icon: MessageSquare, label: 'Chat AI' },
   { id: 'notes',      path: '/notes',      icon: FileText,      label: 'Notes' },
   { id: 'graph',      path: '/graph',      icon: Share2,        label: 'Knowledge Graph' },
@@ -18,72 +19,92 @@ const navItems = [
 ]
 
 export default function Sidebar() {
-  const { sidebarOpen, setSidebarOpen } = useStore()
+  const { sidebarOpen, setSidebarOpen, setActivePage } = useStore()
   const navigate = useNavigate()
   const location = useLocation()
 
   return (
     <aside
       className={clsx(
-        'flex flex-col h-full bg-[#13162a] border-r border-white/5',
-        'transition-all duration-300 flex-shrink-0',
-        sidebarOpen ? 'w-56' : 'w-16',
+        'flex flex-col h-full bg-surface-100 border-r border-white/5 relative z-50',
+        'transition-all duration-500 ease-[cubic-bezier(0.33,1,0.68,1)] flex-shrink-0',
+        sidebarOpen ? 'w-64' : 'w-20',
       )}
     >
+      {/* Glow Effect Top */}
+      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-nexus-500/20 to-transparent" />
+
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-5 border-b border-white/5">
-        <div className="flex-shrink-0 w-8 h-8 bg-nexus-500 rounded-lg flex items-center justify-center">
-          <Brain size={18} className="text-white" />
+      <div className="flex items-center gap-3 px-5 py-8">
+        <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-nexus-400 to-nexus-600 rounded-xl flex items-center justify-center shadow-glow-indigo rotate-3 hover:rotate-0 transition-transform duration-300">
+          <Brain size={22} className="text-white" />
         </div>
         {sidebarOpen && (
-          <span className="font-bold text-white text-lg tracking-tight">
+          <span className="font-bold text-white text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
             NexusMind
           </span>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 space-y-2 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = location.pathname.startsWith(item.path)
           return (
             <button
               key={item.id}
-              onClick={() => navigate(item.path)}
+              onClick={() => {
+                setActivePage(item.id)
+                navigate(item.path)
+              }}
               className={clsx(
-                'nav-item w-full',
-                active && 'active',
-                !sidebarOpen && 'justify-center px-2',
+                active ? 'nav-item-active' : 'nav-item',
+                'w-full',
+                !sidebarOpen && 'justify-center px-0',
               )}
               title={!sidebarOpen ? item.label : undefined}
             >
-              <Icon size={18} className="flex-shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
+              <Icon size={20} className={clsx('flex-shrink-0', active ? 'text-nexus-400' : 'group-hover:scale-110 transition-transform')} />
+              {sidebarOpen && <span className="font-medium">{item.label}</span>}
             </button>
           )
         })}
       </nav>
 
       {/* Collapse toggle */}
-      <div className="px-2 pb-4">
+      <div className="p-4">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className={clsx(
-            'btn-ghost w-full',
-            !sidebarOpen && 'justify-center px-2',
+            'flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300',
+            'hover:bg-white/5 text-slate-500 hover:text-white border border-transparent hover:border-white/5',
+            !sidebarOpen && 'justify-center',
           )}
         >
           {sidebarOpen ? (
             <>
-              <ChevronLeft size={16} />
-              <span>Collapse</span>
+              <ChevronLeft size={18} />
+              <span className="text-sm font-medium">Collapse Menu</span>
             </>
           ) : (
-            <ChevronRight size={16} />
+            <ChevronRight size={18} />
           )}
         </button>
       </div>
+
+      {/* Version badge */}
+      {sidebarOpen && (
+        <div className="px-6 py-4">
+          <div className="p-3 rounded-xl bg-gradient-to-br from-white/5 to-transparent border border-white/5">
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">System Status</p>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse" />
+              <p className="text-xs text-slate-300 font-medium font-mono">v1.2.0-STABLE</p>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

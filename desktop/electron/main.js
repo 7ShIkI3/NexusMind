@@ -20,8 +20,10 @@ function startBackend() {
     'app.main:app',
     '--host', '127.0.0.1',
     '--port', '8000',
-    '--reload',
   ]
+  if (isDev) {
+    uvicornArgs.push('--reload')
+  }
 
   if (!fs.existsSync(backendDir)) {
     console.warn('[Desktop] Backend directory not found:', backendDir)
@@ -98,7 +100,7 @@ function setupMenu() {
         {
           label: 'Preferences…',
           accelerator: 'CmdOrCtrl+,',
-          click: () => mainWindow.loadURL(getFrontendUrl() + '#/settings'),
+          click: () => mainWindow.loadURL(getFrontendUrl() + '/settings'),
         },
         { type: 'separator' },
         { role: 'quit' },

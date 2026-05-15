@@ -1,0 +1,4 @@
+NexusMind Project Codex: The primary goal of this project is to create an advanced AI-powered knowledge base that seamlessly integrates notes, graphs, and Retrieval-Augmented Generation (RAG).
+The architecture consists of a FastAPI backend, a standalone RAG microservice using ChromaDB, and a React-based frontend.
+Key features include automated graph linking, semantic search, and an extensible plugin system.
+This file is used to verify the RAG ingestion pipeline in the production environment.
